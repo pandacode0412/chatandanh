@@ -5,5 +5,4 @@ export * from "./errors/error-codes";
 export * from "./matching/matching.schema";
 export * from "./profile/profile.schema";
 export * from "./realtime/events";
-export * from "./rooms/rooms.schema";
 export * from "./safety/safety.schema";

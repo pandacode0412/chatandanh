@@ -9,7 +9,6 @@ import { EngagementModule } from "./modules/engagement/engagement.module";
 import { MatchingModule } from "./modules/matching/matching.module";
 import { ProfilesModule } from "./modules/profiles/profiles.module";
 import { ReportsModule } from "./modules/reports/reports.module";
-import { RoomsModule } from "./modules/rooms/rooms.module";
 import { SessionsModule } from "./modules/sessions/sessions.module";
 
 @Module({
@@ -23,7 +22,6 @@ import { SessionsModule } from "./modules/sessions/sessions.module";
     MatchingModule,
     ChatModule,
     EngagementModule,
-    RoomsModule,
     ReportsModule,
     AdminModule
   ]

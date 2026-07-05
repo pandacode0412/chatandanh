@@ -8,7 +8,6 @@ export interface SocketReadyPayload {
 
 export interface MatchingPairedPayload {
   conversationId: string;
-  topicId?: string;
   participant: PublicParticipant;
 }
 
@@ -32,7 +31,7 @@ export interface ConversationEndedPayload {
 
 export interface EngagementMilestonePayload {
   conversationId: string;
-  milestone: "topic_suggestion";
+  milestone: "question_suggestion";
   title: string;
   suggestions: string[];
 }

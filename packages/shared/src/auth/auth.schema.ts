@@ -7,7 +7,6 @@ export type UserMode = (typeof userModes)[number];
 export const createAnonymousSessionSchema = z.object({
   preferredAlias: z.string().trim().min(2).max(30).optional(),
   profile: chatProfileSchema.optional(),
-  topicIds: z.array(z.string().trim().min(1)).optional(),
   ageConfirmed: z.boolean().default(true)
 });
 
@@ -45,6 +44,7 @@ export interface AccountSummary {
   email: string;
   displayName: string;
   mode: Extract<UserMode, "registered" | "premium">;
+  role: "user" | "moderator" | "admin";
   profileComplete: boolean;
 }
 

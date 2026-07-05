@@ -1,8 +1,12 @@
 import { useEffect, useMemo, useState } from "react";
 import {
+  Activity,
   AtSign,
   Ban,
+  BarChart3,
   DoorOpen,
+  Flag,
+  Gavel,
   HeartHandshake,
   KeyRound,
   LoaderCircle,
@@ -10,19 +14,37 @@ import {
   LogOut,
   Mail,
   MessageCircle,
+  RefreshCw,
   Send,
   ShieldAlert,
+  ShieldCheck,
   Shuffle,
   UserPlus,
-  UserRound
+  UserRound,
+  Users
 } from "lucide-react";
 import { io, type Socket } from "socket.io-client";
-import { chatProfileSchema, genders, type ChatProfile, type PublicParticipant, type ReportReason } from "@chatandanh/shared";
+import {
+  chatProfileSchema,
+  genders,
+  vietnamLocations,
+  type AdminOverview,
+  type AdminReportSummary,
+  type AdminUserSummary,
+  type ChatProfile,
+  type ModerationAction,
+  type PublicParticipant,
+  type ReportReason
+} from "@chatandanh/shared";
 import {
   apiBaseUrl,
   blockParticipant,
+  cancelMatching,
   createAnonymousSession,
-  getAdminMetrics,
+  createModerationAction,
+  getAdminOverview,
+  getAdminReports,
+  getAdminUsers,
   getMessages,
   getProfile,
   loginWithEmail,
@@ -47,6 +69,7 @@ export function App() {
   const {
     accessToken,
     displayAlias,
+    role,
     profile,
     conversationId,
     participant,
@@ -65,6 +88,22 @@ export function App() {
   const [status, setStatus] = useState("Sẵn sàng bắt đầu một phiên chat ẩn danh.");
   const [matching, setMatching] = useState(false);
   const [savingPreference, setSavingPreference] = useState(false);
+
+  // Advanced filters state for matching
+  const [matchingRequestId, setMatchingRequestId] = useState<string | null>(null);
+  const [filterModalOpen, setFilterModalOpen] = useState(false);
+
+  const [enableAgeFilter, setEnableAgeFilter] = useState(false);
+  const [ageMin, setAgeMin] = useState(18);
+  const [ageMax, setAgeMax] = useState(30);
+
+  const [enableGenderFilter, setEnableGenderFilter] = useState(false);
+  const [filterGenders, setFilterGenders] = useState<ChatProfile["gender"][]>(["male", "female", "other"]);
+
+  const [enableLocationFilter, setEnableLocationFilter] = useState(false);
+  const [filterLocations, setFilterLocations] = useState<string[]>([]);
+  const [locInput, setLocInput] = useState("");
+  const [showLocSuggestions, setShowLocSuggestions] = useState(false);
   const [composer, setComposer] = useState("");
   const [reportOpen, setReportOpen] = useState(false);
   const [authMode, setAuthMode] = useState<AuthMode>("login");
@@ -74,12 +113,20 @@ export function App() {
   const [authBusy, setAuthBusy] = useState(false);
   const [authError, setAuthError] = useState("");
   const [authOpen, setAuthOpen] = useState(false);
-  const [adminMetrics, setAdminMetrics] = useState<null | {
-    onlineUsers: number;
-    activeConversations: number;
-    messagesLastHour: number;
-    openReports: number;
-  }>(null);
+  const [adminOpen, setAdminOpen] = useState(false);
+  const [adminOverview, setAdminOverview] = useState<AdminOverview | null>(null);
+  const [adminReports, setAdminReports] = useState<AdminReportSummary[]>([]);
+  const [adminUsers, setAdminUsers] = useState<AdminUserSummary[]>([]);
+  const [adminLoading, setAdminLoading] = useState(false);
+
+  // States for editing profile in the unified Settings Dialog
+  const [editName, setEditName] = useState("");
+  const [editAge, setEditAge] = useState(20);
+  const [editGender, setEditGender] = useState<ChatProfile["gender"]>("other");
+  const [editLocation, setEditLocation] = useState("Khu vực khác");
+  const [activeSettingsTab, setActiveSettingsTab] = useState<"profile" | "filter">("profile");
+  const [infoOpen, setInfoOpen] = useState(false);
+  const [onlineCount, setOnlineCount] = useState(1);
 
   useEffect(() => {
     if (!accessToken) {
@@ -94,6 +141,7 @@ export function App() {
     nextSocket.on("socket:ready", () => setStatus("Đã kết nối realtime."));
     nextSocket.on("matching:paired", async (payload: { conversationId: string; participant: PublicParticipant }) => {
       setMatching(false);
+      setMatchingRequestId(null);
       setConversation(payload.conversationId, payload.participant);
       nextSocket.emit("conversation:join", { conversationId: payload.conversationId });
       const history = await getMessages(accessToken, payload.conversationId);
@@ -108,6 +156,7 @@ export function App() {
       setStatus("Cuộc trò chuyện đã kết thúc. Bạn có thể tìm người mới.");
     });
     nextSocket.on("moderation:warning", (payload: { message: string }) => setStatus(payload.message));
+    nextSocket.on("stats:online", (payload: { count: number }) => setOnlineCount(payload.count));
     setSocket(nextSocket);
 
     return () => {
@@ -135,11 +184,33 @@ export function App() {
     };
   }, [accessToken, profile, setProfile]);
 
+  useEffect(() => {
+    if (!accessToken || (role !== "admin" && role !== "moderator")) {
+      return;
+    }
+    setAdminOpen(true);
+    void loadAdminDashboard(accessToken);
+  }, [accessToken, role]);
+
   async function handleStartGuest() {
     setStatus("Đang tạo phiên ẩn danh...");
-    const session = await createAnonymousSession();
-    setSession({ accessToken: session.accessToken, displayAlias: session.displayAlias, avatarKey: session.avatarKey });
-    setStatus("Tạo phiên xong. Hoàn tất hồ sơ nhanh để tìm người lạ.");
+    const defaultProfile: ChatProfile = {
+      displayName: "Người lạ",
+      age: 20,
+      location: "Khu vực khác",
+      gender: "other",
+      desiredGenders: ["male", "female", "other"]
+    };
+    const session = await createAnonymousSession(defaultProfile);
+    setSession({
+      accessToken: session.accessToken,
+      displayAlias: session.displayAlias,
+      avatarKey: session.avatarKey,
+      role: "user",
+      profile: defaultProfile
+    });
+    setProfile(defaultProfile);
+    setStatus("Đã kết nối ẩn danh.");
   }
 
   async function handleProfileSubmit(nextProfile: ChatProfile) {
@@ -150,6 +221,7 @@ export function App() {
         accessToken: session.accessToken,
         displayAlias: session.displayAlias,
         avatarKey: session.avatarKey,
+        role: "user",
         profile: parsed
       });
       setStatus("Hồ sơ đã sẵn sàng. Bạn có thể tìm người lạ.");
@@ -158,6 +230,32 @@ export function App() {
     await updateProfile(accessToken, parsed);
     setProfile(parsed);
     setStatus("Đã lưu hồ sơ. Tìm người lạ thôi.");
+  }
+
+  useEffect(() => {
+    if (profile) {
+      setEditName(profile.displayName);
+      setEditAge(profile.age);
+      setEditGender(profile.gender);
+      setEditLocation(profile.location);
+    }
+  }, [profile, filterModalOpen]);
+
+  async function handleSaveSettings() {
+    try {
+      const updatedProfile: ChatProfile = {
+        displayName: editName.trim() || "Người lạ",
+        age: editAge,
+        gender: editGender,
+        location: editLocation,
+        desiredGenders: profile?.desiredGenders ?? ["male", "female", "other"]
+      };
+      await handleProfileSubmit(updatedProfile);
+      setFilterModalOpen(false);
+      setStatus("Đã lưu thông tin cài đặt.");
+    } catch (e) {
+      setStatus(e instanceof Error ? e.message : "Không lưu được cài đặt.");
+    }
   }
 
   async function handleAuthSubmit(event: React.FormEvent) {
@@ -179,14 +277,19 @@ export function App() {
       setSession({
         accessToken: response.accessToken,
         displayAlias: response.account.displayName,
-        avatarKey: "avatar_registered"
+        avatarKey: "avatar_registered",
+        role: response.account.role
       });
       const profileResult = await getProfile(response.accessToken);
       if (profileResult.profile) {
         setProfile(profileResult.profile);
-        setStatus("Đã đăng nhập. Bạn có thể tìm người lạ.");
+        setStatus(response.account.role === "admin" || response.account.role === "moderator" ? "Đã đăng nhập khu vực quản trị." : "Đã đăng nhập. Bạn có thể tìm người lạ.");
       } else {
-        setStatus("Đã đăng nhập. Hoàn tất hồ sơ nhanh để bắt đầu.");
+        setStatus(response.account.role === "admin" || response.account.role === "moderator" ? "Đã đăng nhập khu vực quản trị." : "Đã đăng nhập. Hoàn tất hồ sơ nhanh để bắt đầu.");
+      }
+      if (response.account.role === "admin" || response.account.role === "moderator") {
+        setAdminOpen(true);
+        void loadAdminDashboard(response.accessToken);
       }
       setAuthOpen(false);
       setAuthPassword("");
@@ -205,9 +308,12 @@ export function App() {
     }
     socket?.disconnect();
     clearSession();
-    setAdminMetrics(null);
+    setAdminOpen(false);
+    setAdminOverview(null);
+    setAdminReports([]);
+    setAdminUsers([]);
     setAuthPassword("");
-    setStatus("Đã đăng xuất. Bạn vẫn có thể bắt đầu bằng phiên ẩn danh.");
+    setStatus("Đã đăng xuất. Vui lòng đăng nhập để tiếp tục.");
   }
 
   async function handleDesiredGendersChange(nextDesiredGenders: ChatProfile["desiredGenders"]) {
@@ -234,9 +340,44 @@ export function App() {
     }
     setMatching(true);
     setStatus("Đang tìm người phù hợp...");
-    const result = await startMatching(accessToken, profile.desiredGenders);
-    if (result.status === "queued") {
-      setStatus("Đang chờ người phù hợp. Mở thêm một cửa sổ khác để thử ghép nhanh.");
+    try {
+      const preferences = {
+        desiredGenders: enableGenderFilter ? filterGenders : profile.desiredGenders,
+        strictGenderMatch: true,
+        enableAgeFilter,
+        ageRange: enableAgeFilter ? { min: Number(ageMin), max: Number(ageMax) } : undefined,
+        enableGenderFilter,
+        enableLocationFilter,
+        desiredLocations: enableLocationFilter ? filterLocations : undefined
+      };
+      const result = await startMatching(accessToken, preferences);
+      setMatchingRequestId(result.requestId);
+      if (result.status === "queued") {
+        setStatus("Đang tìm bạn chat...");
+      } else if (result.status === "paired") {
+        setMatching(false);
+        setStatus("Đã ghép đôi!");
+      }
+    } catch (error) {
+      setMatching(false);
+      setStatus(error instanceof Error ? error.message : "Không thể bắt đầu tìm kiếm.");
+    }
+  }
+
+  async function handleCancelMatch() {
+    if (!accessToken) return;
+    setStatus("Đang dừng tìm...");
+    try {
+      if (matchingRequestId) {
+        await cancelMatching(accessToken, matchingRequestId);
+      }
+      setMatching(false);
+      setMatchingRequestId(null);
+      setStatus("Đã dừng tìm bạn. Bạn có thể tìm lại bất kỳ lúc nào.");
+    } catch (error) {
+      setMatching(false);
+      setMatchingRequestId(null);
+      setStatus("Đã dừng tìm bạn.");
     }
   }
 
@@ -288,32 +429,157 @@ export function App() {
     setStatus("Đã chặn người này. Hai bạn sẽ không được ghép lại.");
   }
 
-  async function loadAdminMetrics() {
-    if (!accessToken) {
+  async function loadAdminDashboard(token = accessToken) {
+    if (!token) {
       setStatus("Cần đăng nhập bằng tài khoản admin để xem dashboard.");
       return;
     }
     try {
-      setAdminMetrics(await getAdminMetrics(accessToken));
+      setAdminLoading(true);
+      const [overview, reports, users] = await Promise.all([
+        getAdminOverview(token),
+        getAdminReports(token),
+        getAdminUsers(token)
+      ]);
+      setAdminOverview(overview);
+      setAdminReports(reports.items);
+      setAdminUsers(users.items);
+      setStatus("Đã tải dashboard quản trị.");
     } catch (error) {
-      setStatus(error instanceof Error ? error.message : "Không tải được admin metrics.");
+      setStatus(error instanceof Error ? error.message : "Không tải được dashboard quản trị.");
+    } finally {
+      setAdminLoading(false);
     }
   }
 
+  async function handleModerationAction(
+    action: ModerationAction,
+    payload: { reportId?: string; targetSessionId?: string; durationMinutes?: number; note?: string }
+  ) {
+    if (!accessToken) {
+      return;
+    }
+    try {
+      await createModerationAction(accessToken, { action, ...payload });
+      setStatus("Đã ghi nhận thao tác quản trị.");
+      await loadAdminDashboard(accessToken);
+    } catch (error) {
+      setStatus(error instanceof Error ? error.message : "Không xử lý được report.");
+    }
+  }
+
+  const isStaff = role === "admin" || role === "moderator";
+
   const currentStep = useMemo(() => {
     if (!accessToken) return "guest";
+    if (isStaff && (adminOpen || !profile)) return "admin";
     if (!profile) return "profile";
     if (conversationId) return "chat";
     return "match";
-  }, [accessToken, conversationId, profile]);
+  }, [accessToken, adminOpen, conversationId, isStaff, profile]);
+
+  if (currentStep === "guest") {
+    return (
+      <div className="landing-container">
+        <div className="landing-center-box">
+          <div className="landing-logo">
+            <span className="logo-icon">🕵️</span>
+            <h1 className="logo-text">ẨN DANH</h1>
+          </div>
+          <p className="landing-subtitle">Trò chuyện & kết bạn với người lạ</p>
+
+          <p className="landing-warning">
+            Bằng việc đăng ký tài khoản, bạn đồng ý với Điều khoản dịch vụ và Chính sách bảo mật của chúng tôi.
+          </p>
+
+          <div className="landing-actions">
+            <button className="btn-landing-start" onClick={() => { setAuthMode("register"); setAuthOpen(true); }}>
+              Đăng ký tài khoản
+            </button>
+            <button className="btn-landing-login" onClick={() => { setAuthMode("login"); setAuthOpen(true); }}>
+              Đăng nhập Email
+            </button>
+          </div>
+
+          <footer className="landing-footer">
+            <button className="btn-footer-link" onClick={() => setInfoOpen(true)}>
+              Tìm hiểu thêm
+            </button>
+            <span className="footer-divider">•</span>
+            <a href="https://cvnl.app/tos/" target="_blank" rel="noreferrer" className="btn-footer-link">
+              Điều khoản dịch vụ
+            </a>
+          </footer>
+        </div>
+
+        {authOpen && (
+          <div className="modal-backdrop">
+            <div className="auth-dialog">
+              <AuthPanel
+                accessToken={accessToken}
+                displayAlias={displayAlias}
+                profile={profile}
+                authMode={authMode}
+                authEmail={authEmail}
+                authPassword={authPassword}
+                authDisplayName={authDisplayName}
+                authBusy={authBusy}
+                authError={authError}
+                onAuthModeChange={setAuthMode}
+                onEmailChange={setAuthEmail}
+                onPasswordChange={setAuthPassword}
+                onDisplayNameChange={setAuthDisplayName}
+                onAuthSubmit={(event) => void handleAuthSubmit(event)}
+                onLogout={() => void handleLogout()}
+              />
+              <button className="ghost-button full-width" onClick={() => setAuthOpen(false)}>
+                Đóng
+              </button>
+            </div>
+          </div>
+        )}
+
+        {infoOpen && (
+          <div className="modal-backdrop">
+            <div className="dialog cvnl-info-dialog">
+              <h2>Chat Ẩn Danh bảo mật & tự do</h2>
+              <div className="info-dialog-content">
+                <ul>
+                  <li><strong>KHÔNG</strong> cần đăng ký tài khoản ban đầu</li>
+                  <li><strong>KHÔNG</strong> yêu cầu định danh thật</li>
+                  <li><strong>KHÔNG</strong> lưu trữ vĩnh viễn nội dung tin nhắn</li>
+                </ul>
+                <p>Mọi dữ liệu trò chuyện đều tự động hủy ngay khi một trong hai người bấm kết thúc cuộc chat.</p>
+              </div>
+              <button className="primary-button full-width" onClick={() => setInfoOpen(false)}>
+                Tôi đã hiểu
+              </button>
+            </div>
+          </div>
+        )}
+      </div>
+    );
+  }
 
   return (
     <main className="app-shell">
       <aside className="app-rail" aria-label="Điều hướng nhanh">
         <div className="rail-logo">ẩn<br />danh</div>
-        <button className="rail-button active" title="Chat"><MessageCircle size={20} /></button>
+        <button className={`rail-button ${currentStep !== "admin" ? "active" : ""}`} title="Chat" onClick={() => setAdminOpen(false)}><MessageCircle size={20} /></button>
         <button className="rail-button" title="Ghép ngẫu nhiên"><Shuffle size={20} /></button>
         <button className="rail-button" title="An toàn"><ShieldAlert size={20} /></button>
+        {isStaff && (
+          <button
+            className={`rail-button ${currentStep === "admin" ? "active" : ""}`}
+            title="Quản trị"
+            onClick={() => {
+              setAdminOpen(true);
+              void loadAdminDashboard();
+            }}
+          >
+            <BarChart3 size={20} />
+          </button>
+        )}
       </aside>
 
       <section className="workspace">
@@ -329,11 +595,25 @@ export function App() {
           </div>
           <div className="brand-mark">
             <span>Chat Ẩn Danh</span>
-            <small>100+ người đang online</small>
+            <small>{onlineCount} người đang online</small>
           </div>
-          <div className="session-pill" title={displayAlias ?? "Khách mới"}>
-            <UserRound size={16} />
-            <span>{displayAlias ?? "Khách mới"}</span>
+          <div className="topbar-actions">
+            {isStaff && (
+              <button
+                className="admin-button"
+                onClick={() => {
+                  setAdminOpen(true);
+                  void loadAdminDashboard();
+                }}
+              >
+                <ShieldCheck size={16} />
+                Quản trị
+              </button>
+            )}
+            <div className="session-pill" title={profile?.displayName ?? displayAlias ?? "Khách mới"}>
+              <UserRound size={16} />
+              <span>{profile?.displayName ?? displayAlias ?? "Khách mới"}</span>
+            </div>
           </div>
         </header>
 
@@ -341,17 +621,33 @@ export function App() {
 
         <div className="main-grid">
           <section className="primary-panel">
-            {currentStep === "guest" && <Lobby onStart={handleStartGuest} />}
-
             {currentStep === "profile" && <ProfileSetup onSubmit={handleProfileSubmit} />}
 
             {currentStep === "match" && (
               <MatchingPanel
-                profile={profile}
-                onDesiredGendersChange={(next) => void handleDesiredGendersChange(next)}
-                onMatch={handleMatch}
+                displayAlias={profile?.displayName ?? displayAlias}
                 matching={matching}
-                savingPreference={savingPreference}
+                onMatch={handleMatch}
+                onCancelMatch={handleCancelMatch}
+                onOpenFilters={() => setFilterModalOpen(true)}
+                enableAgeFilter={enableAgeFilter}
+                ageMin={ageMin}
+                ageMax={ageMax}
+                enableGenderFilter={enableGenderFilter}
+                filterGenders={filterGenders}
+                enableLocationFilter={enableLocationFilter}
+                filterLocations={filterLocations}
+              />
+            )}
+
+            {currentStep === "admin" && (
+              <AdminDashboard
+                overview={adminOverview}
+                reports={adminReports}
+                users={adminUsers}
+                loading={adminLoading}
+                onRefresh={() => void loadAdminDashboard()}
+                onAction={(action, payload) => void handleModerationAction(action, payload)}
               />
             )}
 
@@ -415,6 +711,235 @@ export function App() {
           </div>
         </div>
       )}
+
+      {filterModalOpen && (
+        <div className="modal-backdrop">
+          <div className="dialog filter-dialog settings-modal-dialog">
+            <header className="settings-modal-header">
+              <h2>Cài đặt & Bộ lọc</h2>
+              <div className="settings-tabs">
+                <button
+                  type="button"
+                  className={activeSettingsTab === "profile" ? "active" : ""}
+                  onClick={() => setActiveSettingsTab("profile")}
+                >
+                  Hồ sơ cá nhân
+                </button>
+                <button
+                  type="button"
+                  className={activeSettingsTab === "filter" ? "active" : ""}
+                  onClick={() => setActiveSettingsTab("filter")}
+                >
+                  Bộ lọc đối phương
+                </button>
+              </div>
+            </header>
+
+            <div className="settings-modal-content">
+              {activeSettingsTab === "profile" && (
+                <div className="settings-profile-tab">
+                  <label className="form-label">
+                    Tên hiển thị
+                    <input
+                      type="text"
+                      className="form-input"
+                      value={editName}
+                      onChange={(e) => setEditName(e.target.value)}
+                      maxLength={30}
+                    />
+                  </label>
+
+                  <div className="two-cols-settings">
+                    <label className="form-label">
+                      Tuổi (*)
+                      <input
+                        type="number"
+                        className="form-input"
+                        value={editAge}
+                        min={18}
+                        max={99}
+                        onChange={(e) => setEditAge(Number(e.target.value))}
+                      />
+                    </label>
+
+                    <fieldset className="form-fieldset">
+                      <legend>Giới tính (*)</legend>
+                      <div className="segmented-settings">
+                        {genders.map((g) => (
+                          <button
+                            key={g}
+                            type="button"
+                            className={editGender === g ? "active" : ""}
+                            onClick={() => setEditGender(g)}
+                          >
+                            {genderLabels[g]}
+                          </button>
+                        ))}
+                      </div>
+                    </fieldset>
+                  </div>
+
+                  <label className="form-label">
+                    Tỉnh thành (*)
+                    <select
+                      className="form-select"
+                      value={editLocation}
+                      onChange={(e) => setEditLocation(e.target.value)}
+                    >
+                      {vietnamLocations.map((item) => (
+                        <option key={item} value={item}>
+                          {item}
+                        </option>
+                      ))}
+                    </select>
+                  </label>
+                </div>
+              )}
+
+              {activeSettingsTab === "filter" && (
+                <div className="settings-filter-tab filter-options-stack">
+                  <div className="filter-row">
+                    <label className="checkbox-label">
+                      <input
+                        type="checkbox"
+                        checked={enableAgeFilter}
+                        onChange={(e) => setEnableAgeFilter(e.target.checked)}
+                      />
+                      <span>Lọc theo Tuổi đối phương</span>
+                    </label>
+                    {enableAgeFilter && (
+                      <div className="filter-inputs">
+                        <label>
+                          Từ
+                          <input
+                            type="number"
+                            min={18}
+                            max={99}
+                            value={ageMin}
+                            onChange={(e) => setAgeMin(Number(e.target.value))}
+                          />
+                        </label>
+                        <label>
+                          Đến
+                          <input
+                            type="number"
+                            min={18}
+                            max={99}
+                            value={ageMax}
+                            onChange={(e) => setAgeMax(Number(e.target.value))}
+                          />
+                        </label>
+                      </div>
+                    )}
+                  </div>
+
+                  <div className="filter-row">
+                    <label className="checkbox-label">
+                      <input
+                        type="checkbox"
+                        checked={enableGenderFilter}
+                        onChange={(e) => setEnableGenderFilter(e.target.checked)}
+                      />
+                      <span>Lọc theo Giới tính đối phương</span>
+                    </label>
+                    {enableGenderFilter && (
+                      <div className="gender-choices">
+                        {genders.map((g) => (
+                          <label key={g} className="choice-item">
+                            <input
+                              type="checkbox"
+                              checked={filterGenders.includes(g)}
+                              onChange={(e) => {
+                                if (e.target.checked) {
+                                  setFilterGenders([...filterGenders, g]);
+                                } else {
+                                  setFilterGenders(filterGenders.filter((x) => x !== g));
+                                }
+                              }}
+                            />
+                            <span>{g === "male" ? "Nam" : g === "female" ? "Nữ" : "LGBT"}</span>
+                          </label>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+
+                  <div className="filter-row">
+                    <label className="checkbox-label">
+                      <input
+                        type="checkbox"
+                        checked={enableLocationFilter}
+                        onChange={(e) => setEnableLocationFilter(e.target.checked)}
+                      />
+                      <span>Lọc theo Tỉnh thành đối phương</span>
+                    </label>
+                    {enableLocationFilter && (
+                      <div className="location-filter-box">
+                        <div className="location-search-wrapper">
+                          <input
+                            type="text"
+                            placeholder="Tìm tỉnh/thành..."
+                            value={locInput}
+                            onChange={(e) => {
+                              setLocInput(e.target.value);
+                              setShowLocSuggestions(true);
+                            }}
+                            onFocus={() => setShowLocSuggestions(true)}
+                          />
+                          {showLocSuggestions && locInput && (
+                            <ul className="suggestions-list">
+                              {vietnamLocations
+                                .filter((loc) => loc.toLowerCase().includes(locInput.toLowerCase()))
+                                .slice(0, 5)
+                                .map((loc) => (
+                                  <li
+                                    key={loc}
+                                    onClick={() => {
+                                      if (!filterLocations.includes(loc)) {
+                                        setFilterLocations([...filterLocations, loc]);
+                                      }
+                                      setLocInput("");
+                                      setShowLocSuggestions(false);
+                                    }}
+                                  >
+                                    {loc}
+                                  </li>
+                                ))}
+                            </ul>
+                          )}
+                        </div>
+
+                        <div className="selected-locations-tags">
+                          {filterLocations.map((loc) => (
+                            <span key={loc} className="loc-tag">
+                              {loc}
+                              <button
+                                type="button"
+                                onClick={() => setFilterLocations(filterLocations.filter((x) => x !== loc))}
+                              >
+                                &times;
+                              </button>
+                            </span>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                </div>
+              )}
+            </div>
+
+            <div className="dialog-footer">
+              <button className="primary-button btn-save-settings" onClick={handleSaveSettings}>
+                Lưu cài đặt
+              </button>
+              <button className="ghost-button" onClick={() => setFilterModalOpen(false)}>
+                Đóng
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </main>
   );
 }
@@ -437,9 +962,7 @@ function Lobby({ onStart }: { onStart: () => void }) {
       <section className="setup-section">
         <h2>Bạn muốn gặp:</h2>
         <div className="preview-stack muted">
-          <div className="fake-input"><small>Tuổi</small><span>Tất cả</span></div>
           <div className="fake-input"><small>Giới tính</small><span>Bất kỳ</span></div>
-          <div className="fake-input"><small>Tỉnh thành</small><span>Tất cả</span></div>
         </div>
       </section>
 
@@ -517,50 +1040,234 @@ function ProfileSetup({ onSubmit }: { onSubmit: (profile: ChatProfile) => Promis
 }
 
 function MatchingPanel({
-  profile,
-  onDesiredGendersChange,
-  onMatch,
+  displayAlias,
   matching,
-  savingPreference
+  onMatch,
+  onCancelMatch,
+  onOpenFilters,
+  enableAgeFilter,
+  ageMin,
+  ageMax,
+  enableGenderFilter,
+  filterGenders,
+  enableLocationFilter,
+  filterLocations
 }: {
-  profile: ChatProfile | null;
-  onDesiredGendersChange: (value: ChatProfile["desiredGenders"]) => void;
-  onMatch: () => void;
+  displayAlias: string | null;
   matching: boolean;
-  savingPreference: boolean;
+  onMatch: () => void;
+  onCancelMatch: () => void;
+  onOpenFilters: () => void;
+  enableAgeFilter: boolean;
+  ageMin: number;
+  ageMax: number;
+  enableGenderFilter: boolean;
+  filterGenders: ChatProfile["gender"][];
+  enableLocationFilter: boolean;
+  filterLocations: string[];
 }) {
   return (
-    <div className="setup-dialog">
-      <section className="setup-section">
-        <h2>Thông tin của bạn:</h2>
-        <div className="preview-stack">
-          <div className="fake-input"><small>Tên</small><span>{profile?.displayName}</span></div>
-          <div className="two-cols">
-            <div className="fake-input"><small>Tuổi</small><span>{profile?.age}</span></div>
-            <div className="fake-input"><small>Giới tính</small><span>{profile?.gender ? genderLabels[profile.gender] : ""}</span></div>
+    <div className="matching-lobby-card">
+      <header className="lobby-card-header">
+        <span className="lobby-user-icon">🕵️</span>
+        <span className="lobby-user-id">{displayAlias ?? "Ẩn danh"}</span>
+      </header>
+
+      <div className="lobby-status-banner">
+        {matching ? "Đang tìm bạn chat..." : "Hãy tìm bạn thôi nào..."}
+      </div>
+
+      <div className="lobby-action-buttons">
+        {matching ? (
+          <button className="btn-stop-search" onClick={onCancelMatch}>
+            <LoaderCircle className="spin" size={18} />
+            Dừng tìm bạn
+          </button>
+        ) : (
+          <>
+            <button className="btn-update-filters" onClick={onOpenFilters}>
+              Cập nhật thông tin
+            </button>
+            <button className="btn-start-search" onClick={onMatch}>
+              Tìm bạn thôi
+            </button>
+          </>
+        )}
+      </div>
+
+      <div className="lobby-filters-preview">
+        <h4>Bộ lọc mong muốn hiện tại:</h4>
+        <ul>
+          <li>
+            <strong>Tuổi:</strong> {enableAgeFilter ? `${ageMin} - ${ageMax} tuổi` : "Bất kỳ"}
+          </li>
+          <li>
+            <strong>Giới tính:</strong>{" "}
+            {enableGenderFilter
+              ? filterGenders.map((g) => (g === "male" ? "Nam" : g === "female" ? "Nữ" : "LGBT")).join(", ")
+              : "Bất kỳ"}
+          </li>
+          <li>
+            <strong>Tỉnh thành:</strong>{" "}
+            {enableLocationFilter && filterLocations.length > 0 ? filterLocations.join(", ") : "Bất kỳ"}
+          </li>
+        </ul>
+      </div>
+    </div>
+  );
+}
+
+function AdminDashboard({
+  overview,
+  reports,
+  users,
+  loading,
+  onRefresh,
+  onAction
+}: {
+  overview: AdminOverview | null;
+  reports: AdminReportSummary[];
+  users: AdminUserSummary[];
+  loading: boolean;
+  onRefresh: () => void;
+  onAction: (
+    action: ModerationAction,
+    payload: { reportId?: string; targetSessionId?: string; durationMinutes?: number; note?: string }
+  ) => void;
+}) {
+  const metrics = overview?.metrics;
+  const watchedUsers = overview?.watchedUsers.length ? overview.watchedUsers : users.filter((user) => user.reportCount > 0 || user.status !== "active");
+
+  return (
+    <div className="admin-shell">
+      <header className="admin-header">
+        <div>
+          <h2>Quản trị hệ thống</h2>
+          <p>Theo dõi truy cập, report và tự động hạn chế user vi phạm.</p>
+        </div>
+        <button className="secondary-button" onClick={onRefresh} disabled={loading}>
+          {loading ? <LoaderCircle className="spin" size={16} /> : <RefreshCw size={16} />}
+          Làm mới
+        </button>
+      </header>
+
+      <section className="admin-metrics">
+        <MetricTile icon={<Users size={18} />} label="Tổng user" value={metrics?.totalUsers ?? 0} hint={`${metrics?.onlineUsers ?? 0} online`} />
+        <MetricTile icon={<Activity size={18} />} label="Truy cập 24h" value={metrics?.activeUsersLast24h ?? 0} hint={`${metrics?.newUsersLast24h ?? 0} user mới`} />
+        <MetricTile icon={<MessageCircle size={18} />} label="Tin nhắn" value={metrics?.totalMessages ?? 0} hint={`${metrics?.messagesLastHour ?? 0} trong 1 giờ`} />
+        <MetricTile icon={<Flag size={18} />} label="Report" value={metrics?.totalReports ?? 0} hint={`${metrics?.openReports ?? 0} đang mở`} />
+        <MetricTile icon={<Ban size={18} />} label="Bị ban" value={metrics?.bannedUsers ?? 0} hint={`${metrics?.mutedUsers ?? 0} bị mute`} />
+        <MetricTile icon={<BarChart3 size={18} />} label="Report/1000 tin" value={metrics?.reportRatePer1000Messages ?? 0} hint={`${metrics?.activeConversations ?? 0} chat active`} />
+      </section>
+
+      <section className="admin-columns">
+        <div className="admin-panel">
+          <div className="admin-panel-heading">
+            <h3>Hành vi bị báo cáo</h3>
+            <span>{overview?.metrics.totalReports ?? 0} report</span>
           </div>
-          <div className="fake-input"><small>Tỉnh thành</small><span>{profile?.location}</span></div>
+          <div className="reason-list">
+            {(overview?.reportsByReason ?? []).map((item) => (
+              <div key={item.reason} className="reason-row">
+                <span>{reportLabel(item.reason)}</span>
+                <strong>{item.count}</strong>
+              </div>
+            ))}
+          </div>
+        </div>
+
+        <div className="admin-panel">
+          <div className="admin-panel-heading">
+            <h3>User cần theo dõi</h3>
+            <span>{watchedUsers.length} user</span>
+          </div>
+          <div className="user-watch-list">
+            {watchedUsers.length === 0 && <p className="admin-empty">Chưa có user bị report.</p>}
+            {watchedUsers.map((user) => (
+              <article key={user.sessionId} className="user-row">
+                <div>
+                  <strong>{user.alias}</strong>
+                  <span>{statusLabel(user.status)} • {user.reportCount} report • {roleLabel(user.role)}</span>
+                  {user.banUntil && <small>Ban đến {formatDateTime(user.banUntil)}</small>}
+                </div>
+                <div className="admin-row-actions">
+                  <button className="ghost-button" onClick={() => onAction("mute", { targetSessionId: user.sessionId, durationMinutes: 60, note: "Mute nhanh từ dashboard" })}>
+                    Mute 1h
+                  </button>
+                  <button className="secondary-button" onClick={() => onAction("ban", { targetSessionId: user.sessionId, note: "Ban theo rule từ dashboard" })}>
+                    Ban theo rule
+                  </button>
+                </div>
+              </article>
+            ))}
+          </div>
         </div>
       </section>
 
-      <section className="setup-section">
-        <h2>Bạn muốn gặp:</h2>
-        <GenderPreference
-          label="Giới tính"
-          value={profile?.desiredGenders ?? ["male", "female", "other"]}
-          onChange={onDesiredGendersChange}
-        />
-        <small>{savingPreference ? "Đang lưu lựa chọn..." : "Không cần chọn chủ đề."}</small>
+      <section className="admin-panel reports-panel">
+        <div className="admin-panel-heading">
+          <h3>Report gần đây</h3>
+          <span>{reports.length} mục</span>
+        </div>
+        <div className="report-table">
+          {reports.length === 0 && <p className="admin-empty">Chưa có report nào.</p>}
+          {reports.map((report) => (
+            <article key={report.id} className="report-row">
+              <div className="report-main">
+                <strong>{reportLabel(report.reason)}</strong>
+                <span>{severityLabel(report.severity)} • {reportStatusLabel(report.status)} • {formatDateTime(report.createdAt)}</span>
+                <small>
+                  Người báo cáo: {report.reporterAlias}
+                  {report.targetAlias ? ` • Bị báo cáo: ${report.targetAlias}` : ""}
+                  {report.note ? ` • Ghi chú: ${report.note}` : ""}
+                </small>
+              </div>
+              <div className="report-meta">
+                <span>{report.targetReportCount} report</span>
+                <span>{report.targetBanCount} lần ban</span>
+                {report.targetBanUntil && <span>Ban đến {formatDateTime(report.targetBanUntil)}</span>}
+              </div>
+              <div className="admin-row-actions">
+                <button className="ghost-button" onClick={() => onAction("ignore", { reportId: report.id, note: "Bỏ qua từ dashboard" })}>
+                  Bỏ qua
+                </button>
+                {report.messageId && (
+                  <button className="ghost-button" onClick={() => onAction("hide_message", { reportId: report.id, note: "Ẩn tin nhắn bị report" })}>
+                    Ẩn tin
+                  </button>
+                )}
+                <button
+                  className="secondary-button"
+                  disabled={!report.targetSessionId}
+                  onClick={() => onAction("mute", { reportId: report.id, targetSessionId: report.targetSessionId, durationMinutes: 60, note: "Mute 1 giờ do report" })}
+                >
+                  Mute 1h
+                </button>
+                <button
+                  className="primary-button"
+                  disabled={!report.targetSessionId}
+                  onClick={() => onAction("ban", { reportId: report.id, targetSessionId: report.targetSessionId, note: "Ban theo rule do report nhiều lần" })}
+                >
+                  <Gavel size={16} />
+                  Ban
+                </button>
+              </div>
+            </article>
+          ))}
+        </div>
       </section>
-
-      <footer className="setup-footer">
-        <p>*Bạn có thể đổi lựa chọn giới tính trước mỗi lần tìm</p>
-        <button className="primary-button" onClick={onMatch} disabled={matching}>
-          {matching ? <LoaderCircle className="spin" size={18} /> : <Shuffle size={18} />}
-          {matching ? "Đang tìm..." : "Tìm bạn mới"}
-        </button>
-      </footer>
     </div>
+  );
+}
+
+function MetricTile({ icon, label, value, hint }: { icon: React.ReactNode; label: string; value: number; hint: string }) {
+  return (
+    <article className="metric-tile">
+      <div>{icon}</div>
+      <span>{label}</span>
+      <strong>{value.toLocaleString("vi-VN")}</strong>
+      <small>{hint}</small>
+    </article>
   );
 }
 
@@ -824,4 +1531,54 @@ function formatDesiredGenders(value: ChatProfile["desiredGenders"]) {
 
 function createClientId() {
   return globalThis.crypto?.randomUUID?.() ?? `client_${Date.now()}_${Math.random().toString(16).slice(2)}`;
+}
+
+function statusLabel(status: string) {
+  const labels: Record<string, string> = {
+    active: "Hoạt động",
+    muted: "Bị khóa mõm",
+    banned: "Bị cấm",
+    expired: "Hết hạn"
+  };
+  return labels[status] ?? status;
+}
+
+function roleLabel(role: string) {
+  const labels: Record<string, string> = {
+    admin: "Admin",
+    moderator: "Mod",
+    user: "User"
+  };
+  return labels[role] ?? role;
+}
+
+function severityLabel(severity: string) {
+  const labels: Record<string, string> = {
+    low: "Thấp",
+    medium: "Trung bình",
+    high: "Cao",
+    critical: "Nguy cấp"
+  };
+  return labels[severity] ?? severity;
+}
+
+function reportStatusLabel(status: string) {
+  const labels: Record<string, string> = {
+    open: "Đang mở",
+    reviewing: "Đang xem xét",
+    resolved: "Đã xử lý",
+    dismissed: "Bỏ qua"
+  };
+  return labels[status] ?? status;
+}
+
+function formatDateTime(value?: string) {
+  if (!value) return "chưa rõ";
+  return new Date(value).toLocaleString("vi-VN", {
+    hour: "2-digit",
+    minute: "2-digit",
+    day: "2-digit",
+    month: "2-digit",
+    year: "numeric"
+  });
 }

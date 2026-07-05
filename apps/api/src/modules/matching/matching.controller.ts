@@ -14,9 +14,7 @@ export class MatchingController {
     const payload = startMatchingSchema.parse(body);
     const result = this.store.startMatching(
       auth.sessionId,
-      payload.topicId,
-      payload.preferences?.desiredGenders,
-      payload.preferences?.strictGenderMatch ?? true
+      payload.preferences
     );
     return ok(result);
   }

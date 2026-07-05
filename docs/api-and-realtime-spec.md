@@ -131,7 +131,6 @@ Request:
     "gender": "female",
     "desiredGenders": ["male", "other"]
   },
-  "topicIds": ["tam-su"],
   "ageConfirmed": true
 }
 ```
@@ -311,7 +310,7 @@ Response:
 Validation:
 
 - `displayName`: 2-30 ký tự, trim, không yêu cầu tên thật.
-- `age`: integer. MVP 18-99 nếu app cho phép chủ đề người lớn.
+- `age`: integer. MVP 18-99 nếu app cho phép nội dung người lớn.
 - `location`: 2-80 ký tự, chỉ tỉnh/thành/khu vực, không lưu địa chỉ chính xác.
 - `gender`: `male`, `female`, `other`.
 - `desiredGenders`: array có ít nhất 1 giá trị trong `male`, `female`, `other`; chọn cả 3 nghĩa là tất cả.
@@ -327,8 +326,6 @@ Request:
   "mode": "direct",
   "preferences": {
     "desiredGenders": ["female"],
-    "ageRange": [18, 35],
-    "location": "Hà Nội",
     "strictGenderMatch": true
   }
 }
@@ -341,7 +338,6 @@ Response:
   "data": {
     "requestId": "match_req_123",
     "status": "queued",
-    "topicId": "bat-ky",
     "timeoutSeconds": 60,
     "avoidRecentMatches": true
   },
@@ -354,7 +350,7 @@ Rules:
 
 - Một session chỉ có một active matching request.
 - Session/account phải có profile complete; nếu thiếu trả `PROFILE_REQUIRED`.
-- Random match không hiển thị lựa chọn topic trong UI; `topicId` là optional/backward-compatible và mặc định `bat-ky`.
+- Random match không có tìm theo chủ đề; request/response matching không có `topicId`, và server bỏ qua field này nếu client cũ gửi lên.
 - Redis queue key gợi ý: `matching:direct`.
 - Không match với blocked target hoặc session bị mute/ban.
 - Matching phải kiểm tra gender của đối phương nằm trong `desiredGenders` của user.
@@ -460,7 +456,7 @@ Request:
 
 ```json
 {
-  "type": "topic_suggestion_selected",
+  "type": "question_suggestion_selected",
   "payload": {
     "question": "Một điều nhỏ gần đây làm bạn vui là gì?"
   }
@@ -516,47 +512,7 @@ Trả danh sách kết nối ẩn danh đã được cả hai đồng ý.
 
 ## 8. Rooms APIs
 
-### GET /api/rooms
-
-Response:
-
-```json
-{
-  "data": {
-    "items": [
-      {
-        "id": "room_tam_su",
-        "slug": "tam-su",
-        "name": "Tâm sự",
-        "description": "Chia sẻ chuyện khó nói",
-        "onlineCount": 128,
-        "enabled": true
-      }
-    ]
-  },
-  "meta": {},
-  "error": null
-}
-```
-
-### POST /api/rooms/:roomId/join
-
-Response:
-
-```json
-{
-  "data": {
-    "roomId": "room_tam_su",
-    "conversationId": "room_conv_tam_su"
-  },
-  "meta": {},
-  "error": null
-}
-```
-
-### POST /api/rooms/:roomId/leave
-
-Rời phòng và socket leave room.
+Rooms/tìm theo chủ đề không mount trong MVP hiện tại. API public không expose `/api/rooms`; random matching dùng `/api/matching/start` và chỉ xét `desiredGenders`.
 
 ## 9. Safety APIs
 
@@ -722,7 +678,6 @@ Server -> Client.
 ```json
 {
   "conversationId": "conv_123",
-  "topicId": "bat-ky",
   "participant": {
     "participantId": "part_other",
     "alias": "Gió 219",
@@ -874,7 +829,7 @@ Server -> Client.
 ```json
 {
   "conversationId": "conv_123",
-  "milestone": "topic_suggestion",
+  "milestone": "question_suggestion",
   "title": "Hai bạn nói chuyện khá hợp đó",
   "suggestions": [
     "Một điều nhỏ gần đây làm bạn vui là gì?",
@@ -887,7 +842,7 @@ Server -> Client.
 Allowed milestones by phase:
 
 ```text
-topic_suggestion      # MVP
+question_suggestion  # MVP
 quick_game            # Phase 2
 save_connection       # Phase 2
 audio_call_unlock     # Phase 4
@@ -979,5 +934,5 @@ sequenceDiagram
 - Client must de-duplicate messages by `clientMessageId`.
 - Server must treat socket events as untrusted input.
 - Never accept `senderId` from client in `message:send`; derive sender from token.
-- For room messages, use same message model but `conversation.type = "room"`.
+- Room messages are out of current MVP because `/api/rooms` is not mounted.
 - Matching must read `gender` and `desiredGenders` from trusted server-side profile, not raw client socket payload.

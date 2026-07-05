@@ -44,6 +44,7 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
       client.join(sessionRoom(auth.sessionId));
       this.store.setOnline(auth.sessionId, true);
       client.emit("socket:ready", { sessionId: auth.sessionId, socketId: client.id, online: true });
+      this.broadcastOnlineCount();
     } catch {
       client.disconnect(true);
     }
@@ -53,6 +54,16 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
     const sessionId = client.data.auth?.sessionId;
     if (sessionId) {
       this.store.setOnline(sessionId, false);
+      this.broadcastOnlineCount();
+    }
+  }
+
+  private broadcastOnlineCount() {
+    try {
+      const count = this.store.getOnlineCount();
+      this.server.emit("stats:online", { count });
+    } catch {
+      // ignore
     }
   }
 
@@ -73,11 +84,11 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
       const message = this.store.sendMessage(auth.sessionId, payload.conversationId, payload.body, payload.clientMessageId);
       this.server.to(conversationRoom(payload.conversationId)).emit("message:new", message);
 
-      if (this.store.shouldEmitTopicSuggestion(payload.conversationId)) {
-        this.store.markTopicSuggestionEmitted(payload.conversationId);
+      if (this.store.shouldEmitQuestionSuggestion(payload.conversationId)) {
+        this.store.markQuestionSuggestionEmitted(payload.conversationId);
         this.server.to(conversationRoom(payload.conversationId)).emit("engagement:milestone", {
           conversationId: payload.conversationId,
-          milestone: "topic_suggestion",
+          milestone: "question_suggestion",
           title: "Hai bạn nói chuyện khá hợp đó",
           suggestions: [
             "Một điều nhỏ gần đây làm bạn vui là gì?",
@@ -117,16 +128,14 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
   }
 
   @OnEvent("matching.paired")
-  emitMatched(payload: { conversationId: string; topicId: string; sessionIds: [string, string] }) {
+  emitMatched(payload: { conversationId: string; sessionIds: [string, string] }) {
     const [sessionA, sessionB] = payload.sessionIds;
     this.server.to(sessionRoom(sessionA)).emit("matching:paired", {
       conversationId: payload.conversationId,
-      topicId: payload.topicId,
       participant: this.store.getOtherParticipant(payload.conversationId, sessionA)
     });
     this.server.to(sessionRoom(sessionB)).emit("matching:paired", {
       conversationId: payload.conversationId,
-      topicId: payload.topicId,
       participant: this.store.getOtherParticipant(payload.conversationId, sessionB)
     });
   }

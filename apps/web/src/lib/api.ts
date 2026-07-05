@@ -1,12 +1,16 @@
 import type {
+  AdminOverview,
+  AdminReportSummary,
+  AdminUserSummary,
   AuthResponse,
   ApiEnvelope,
   ChatProfile,
   CreateAnonymousSessionResponse,
   LoginRequest,
+  ModerationAction,
+  ModerationActionSummary,
   PublicConversation,
   PublicMessage,
-  PublicRoom,
   RegisterRequest,
   ReportReason,
   StartMatchingResponse
@@ -71,15 +75,29 @@ export function updateProfile(token: string, profile: ChatProfile) {
   }, token);
 }
 
-export function startMatching(token: string, desiredGenders: ChatProfile["desiredGenders"]) {
+export function startMatching(
+  token: string,
+  preferences?: {
+    desiredGenders?: ChatProfile["desiredGenders"];
+    strictGenderMatch?: boolean;
+    enableAgeFilter?: boolean;
+    ageRange?: { min?: number; max?: number };
+    enableGenderFilter?: boolean;
+    enableLocationFilter?: boolean;
+    desiredLocations?: string[];
+  }
+) {
   return apiRequest<StartMatchingResponse>("/matching/start", {
     method: "POST",
-    body: JSON.stringify({ mode: "direct", preferences: { desiredGenders, strictGenderMatch: true } })
+    body: JSON.stringify({ mode: "direct", preferences })
   }, token);
 }
 
-export function listRooms() {
-  return apiRequest<{ items: PublicRoom[] }>("/rooms");
+export function cancelMatching(token: string, requestId: string) {
+  return apiRequest<{ status: string }>("/matching/cancel", {
+    method: "POST",
+    body: JSON.stringify({ requestId })
+  }, token);
 }
 
 export function getConversation(token: string, conversationId: string) {
@@ -112,9 +130,27 @@ export function blockParticipant(token: string, body: { conversationId: string; 
 }
 
 export function getAdminMetrics(token: string) {
-  return apiRequest<{ onlineUsers: number; activeConversations: number; messagesLastHour: number; openReports: number }>(
-    "/admin/metrics",
-    {},
-    token
-  );
+  return apiRequest<AdminOverview["metrics"]>("/admin/metrics", {}, token);
+}
+
+export function getAdminOverview(token: string) {
+  return apiRequest<AdminOverview>("/admin/overview", {}, token);
+}
+
+export function getAdminReports(token: string) {
+  return apiRequest<{ items: AdminReportSummary[] }>("/admin/reports?limit=80", {}, token);
+}
+
+export function getAdminUsers(token: string) {
+  return apiRequest<{ items: AdminUserSummary[] }>("/admin/users?limit=120", {}, token);
+}
+
+export function createModerationAction(
+  token: string,
+  body: { reportId?: string; targetSessionId?: string; action: ModerationAction; durationMinutes?: number; note?: string }
+) {
+  return apiRequest<{ accepted: boolean; action: ModerationActionSummary }>("/admin/moderation-actions", {
+    method: "POST",
+    body: JSON.stringify(body)
+  }, token);
 }

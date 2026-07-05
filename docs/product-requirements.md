@@ -32,7 +32,7 @@ Không promise:
 | BR-002 | Tài khoản đăng ký/đăng nhập không bắt buộc trước khi chat; profile tối thiểu vẫn bắt buộc | Must |
 | BR-003 | Giữ danh tính thật riêng tư giữa các người dùng | Must |
 | BR-004 | Có report, block, rate limit ngay từ MVP | Must |
-| BR-005 | Có phòng/chủ đề để tăng retention | Should |
+| BR-005 | Có gợi ý câu hỏi khi cuộc trò chuyện đủ lâu để tăng retention | Should |
 | BR-006 | Có nền tảng premium/ads sau MVP | Should |
 | BR-007 | Có dashboard admin/moderator | Must |
 | BR-008 | Profile tối thiểu bắt buộc trước khi matching | Must |
@@ -69,7 +69,7 @@ Không promise:
 | MVP-004 | Đăng nhập bằng email/password |
 | MVP-005 | Đăng ký/đăng nhập bằng Google account |
 | MVP-006 | Random 1-1 matching |
-| MVP-007 | Room chat theo chủ đề |
+| MVP-007 | Random matching chỉ dựa trên giới tính muốn gặp, không có tìm theo chủ đề |
 | MVP-008 | Gửi/nhận text message realtime |
 | MVP-009 | Typing indicator |
 | MVP-010 | Online/presence |
@@ -83,13 +83,13 @@ Không promise:
 | MVP-018 | User chọn muốn nói chuyện với nam, nữ, giới tính khác hoặc tất cả |
 | MVP-019 | Matching tránh ghép lại người đã gặp khi còn ứng viên mới |
 | MVP-020 | Toàn bộ giao diện người dùng mặc định bằng tiếng Việt |
-| MVP-021 | Gợi ý chủ đề khi hai người chat đủ lâu |
+| MVP-021 | Gợi ý câu hỏi khi hai người chat đủ lâu |
 
 ### Should Have
 
 | ID | Requirement |
 |---|---|
-| SH-001 | Random match không hiển thị lựa chọn topic; phòng chủ đề là luồng riêng |
+| SH-001 | Random match chỉ chọn giới tính muốn gặp; không có luồng tìm theo chủ đề |
 | SH-002 | Chọn khoảng tuổi muốn trò chuyện ở mức optional và không xác thực cứng |
 | SH-003 | PWA installable |
 | SH-004 | Dark mode |
@@ -141,7 +141,7 @@ Không promise:
 | ID | Requirement | Acceptance Criteria |
 |---|---|---|
 | PROF-001 | User phải điền tên hiển thị trước khi chat | `displayName` hoặc `nickname` dài 2-30 ký tự, không yêu cầu tên thật |
-| PROF-002 | User phải điền tuổi | MVP yêu cầu age >= 18 nếu sản phẩm cho phép chủ đề người lớn; age lưu để matching/safety |
+| PROF-002 | User phải điền tuổi | MVP yêu cầu age >= 18 nếu sản phẩm cho phép nội dung người lớn; age lưu để matching/safety |
 | PROF-003 | User phải chọn nơi ở | Chỉ lưu tỉnh/thành hoặc khu vực, không lấy số nhà/địa chỉ chính xác |
 | PROF-004 | User phải chọn giới tính của mình | Giá trị: `male`, `female`, `other` |
 | PROF-005 | User phải chọn giới tính muốn nói chuyện | Cho phép một hoặc nhiều giá trị: `male`, `female`, `other`; chọn cả 3 nghĩa là tất cả |
@@ -153,7 +153,7 @@ Không promise:
 | ID | Requirement | Acceptance Criteria |
 |---|---|---|
 | MATCH-001 | User bấm "Tìm người lạ" để vào queue | Server lưu request vào Redis queue |
-| MATCH-002 | Random match không yêu cầu chọn topic | UI không hiển thị TopicPicker trước khi tìm người; server dùng topic mặc định `bat-ky` để ghép ngẫu nhiên |
+| MATCH-002 | Random match không tìm theo chủ đề | UI không hiển thị TopicPicker; request/response matching không có `topicId`; server chỉ dùng giới tính mong muốn để ghép |
 | MATCH-003 | User không bị match với người đã block | Backend kiểm tra block list trước khi tạo conversation |
 | MATCH-004 | User có thể hủy tìm | Xóa khỏi queue và emit `matching:cancelled` |
 | MATCH-005 | Khi match thành công, tạo conversation | Hai client nhận `matching:paired` với `conversationId` |
@@ -178,13 +178,7 @@ Không promise:
 
 ### 7.6 Rooms
 
-| ID | Requirement | Acceptance Criteria |
-|---|---|---|
-| ROOM-001 | User xem danh sách phòng | API trả rooms, topic, online count |
-| ROOM-002 | User tham gia phòng | Socket join room channel |
-| ROOM-003 | Room có topic rõ ràng | Ví dụ: Tâm sự, Giải trí, Học tập, Hẹn hò, Công nghệ |
-| ROOM-004 | Room có moderation | Report/block vẫn hoạt động trong room |
-| ROOM-005 | Admin có thể bật/tắt room | Room disabled không cho join |
+Rooms và tìm theo chủ đề không nằm trong MVP hiện tại. Không mount route `/rooms`, không hiển thị tab/phòng trong UI, và không dùng topic để ghép random 1-1.
 
 ### 7.7 Block & Report
 
@@ -203,7 +197,7 @@ Không promise:
 | ADM-001 | Moderator xem danh sách report | Có filter status, reason, severity |
 | ADM-002 | Moderator xử lý report | Actions: ignore, warn, mute, ban, hide_message |
 | ADM-003 | Admin xem metrics cơ bản | Online count, conversations, messages, reports |
-| ADM-004 | Admin cấu hình topics/rooms | CRUD room/topic |
+| ADM-004 | Admin xem và xử lý vận hành an toàn | Theo dõi report, user, metrics; không cấu hình room/topic trong MVP hiện tại |
 | ADM-005 | Audit log bắt buộc | Mọi moderation action ghi vào `moderation_actions` |
 
 ### 7.9 Vietnam-First Localization
@@ -213,17 +207,17 @@ Không promise:
 | VN-001 | User-facing UI mặc định là tiếng Việt | Không có nút/form/lỗi validate tiếng Anh ở trải nghiệm người dùng chính |
 | VN-002 | Locale mặc định là `vi-VN` | Ngày giờ, số liệu, empty state và thông báo dùng cách diễn đạt phù hợp người Việt |
 | VN-003 | Nơi ở dùng tỉnh/thành/khu vực Việt Nam | Không yêu cầu địa chỉ chính xác |
-| VN-004 | Topic/phòng chat dùng tiếng Việt | Seed topic gồm Tâm sự, Giải trí, Học tập, Hẹn hò, Công nghệ, Đêm khuya |
+| VN-004 | Gợi ý câu hỏi dùng tiếng Việt | Câu hỏi ngắn, tự nhiên, phù hợp văn hóa trò chuyện Việt Nam |
 | VN-005 | Copy phải ngắn và tự nhiên | CTA như "Bắt đầu ẩn danh", "Tìm người lạ", "Đổi người", "Báo cáo", "Chặn" |
 
 ### 7.10 Long-Chat Engagement
 
-MVP chỉ bắt buộc gợi ý chủ đề (`ENG-002`). Trò nhanh 2 người (`ENG-003`) và lưu kết nối ẩn danh (`ENG-004`) là Phase 2 trừ khi PO bật sớm bằng feature spec và feature flag.
+MVP chỉ bắt buộc gợi ý câu hỏi (`ENG-002`). Trò nhanh 2 người (`ENG-003`) và lưu kết nối ẩn danh (`ENG-004`) là Phase 2 trừ khi PO bật sớm bằng feature spec và feature flag.
 
 | ID | Requirement | Acceptance Criteria |
 |---|---|---|
 | ENG-001 | Theo dõi mốc tương tác của conversation | Server hoặc client tính mốc theo thời gian và số tin nhắn |
-| ENG-002 | Gợi ý chủ đề ở mốc nhẹ | Sau 3 phút hoặc 10 tin nhắn, hiển thị câu hỏi gợi ý bằng tiếng Việt |
+| ENG-002 | Gợi ý câu hỏi ở mốc nhẹ | Sau 3 phút hoặc 10 tin nhắn, hiển thị câu hỏi gợi chuyện bằng tiếng Việt |
 | ENG-003 | Phase 2: Trò nhanh 2 người | Sau 8 phút hoặc 25 tin nhắn, có thể mở mini game A/B nếu cả hai không bỏ qua |
 | ENG-004 | Phase 2: Lưu kết nối ẩn danh | Sau 15 phút hoặc 50 tin nhắn, cho gửi lời mời lưu kết nối; chỉ thành công khi cả hai đồng ý |
 | ENG-005 | Không ép tương tác | Mọi milestone phải có nút bỏ qua và không che composer |
@@ -308,7 +302,7 @@ sequenceDiagram
 
 ### 8.4 Long-Chat Engagement Flow
 
-MVP dừng ở `topic_suggestion`. Nhánh `save_connection` bên dưới chỉ chạy khi Phase 2 saved connections được bật.
+MVP dừng ở `question_suggestion`. Nhánh `save_connection` bên dưới chỉ chạy khi Phase 2 saved connections được bật.
 
 ```mermaid
 sequenceDiagram
@@ -319,7 +313,7 @@ sequenceDiagram
 
   A->>Web: Chat liên tục
   B->>Web: Chat liên tục
-  API-->>Web: engagement:milestone topic_suggestion
+  API-->>Web: engagement:milestone question_suggestion
   Web-->>A: Gợi ý câu hỏi
   Web-->>B: Gợi ý câu hỏi
   A->>Web: Chọn câu hỏi
@@ -368,11 +362,9 @@ Chat đủ mốc
 | Profile Setup | `/profile/setup` | Tên hiển thị, tuổi, tỉnh/thành, giới tính, muốn nói chuyện với giới tính nào |
 | Matching | `/match` | Đang tìm người, hủy tìm, trạng thái hàng chờ |
 | 1-1 Chat | `/chat/:conversationId` | Danh sách tin nhắn, ô nhập, đang nhập, kết thúc, đổi người, chặn, báo cáo |
-| Rooms | `/rooms` | Danh sách phòng, chủ đề, số người online |
-| Room Chat | `/rooms/:roomId` | Chat nhóm theo phòng |
 | Profile | `/me` | Cài đặt nickname, riêng tư, tài khoản, đăng xuất, xóa tài khoản |
 | Safety | `/safety` | Danh sách chặn, lịch sử báo cáo, cài đặt riêng tư |
-| Admin | `/admin` | Dashboard báo cáo, user, phòng, chỉ số |
+| Admin | `/admin` | Dashboard báo cáo, user, chỉ số |
 | Saved Connections | `/connections` | Danh sách kết nối ẩn danh đã được cả hai đồng ý |
 
 ### 9.3 Component Requirements
@@ -385,8 +377,8 @@ Chat đủ mốc
 | AuthPanel | Form email/password gọn, có chuyển Đăng nhập/Đăng ký và trạng thái lỗi tiếng Việt |
 | ProfileSetupForm | Form 1 màn hình cho tên hiển thị, tuổi, tỉnh/thành, giới tính, desired genders |
 | GenderPicker | Segmented control: Nam, Nữ, Khác |
-| DesiredGenderPicker | Chọn giới tính muốn gặp: Bất kỳ, Nam, Nữ, Khác; không kèm topic |
-| EngagementTray | MVP hiển thị gợi ý chủ đề; Phase 2 hiển thị trò nhanh/lưu kết nối khi đủ mốc |
+| DesiredGenderPicker | Chọn giới tính muốn gặp: Bất kỳ, Nam, Nữ, Khác; không kèm filter khác |
+| EngagementTray | MVP hiển thị gợi ý câu hỏi; Phase 2 hiển thị trò nhanh/lưu kết nối khi đủ mốc |
 | IcebreakerCard | Câu hỏi gợi chuyện bằng tiếng Việt |
 | SaveConnectionDialog | Phase 2: lời mời lưu kết nối ẩn danh |
 | CallConsentSheet | Phase sau: cảnh báo riêng tư trước audio/video call |
@@ -408,7 +400,7 @@ Sản phẩm cho phép trò chuyện tự do, tâm sự, giải trí, làm quen 
 - Kêu gọi tự hại hoặc gây hại trực tiếp.
 - Malware, link lừa đảo.
 
-Nếu muốn cho phép chủ đề người lớn, sản phẩm nên đặt age gate 18+, tách phòng adult, không cho phép người chưa đủ tuổi tham gia và vẫn giữ report/moderation.
+Nếu muốn cho phép nội dung người lớn, sản phẩm nên đặt age gate 18+, tách khu vực adult ở phase riêng, không cho phép người chưa đủ tuổi tham gia và vẫn giữ report/moderation.
 
 Audio/video call, phase sau:
 
@@ -439,7 +431,7 @@ Khi dùng tài liệu này để code:
 - Dùng TypeScript ở cả frontend và backend.
 - Tạo monorepo theo cấu trúc trong overview.
 - Không build microservices ở MVP.
-- Backend dùng NestJS module: `AuthModule`, `SessionsModule`, `ProfilesModule`, `MatchingModule`, `ChatModule`, `EngagementModule`, `RoomsModule`, `ReportsModule`, `AdminModule`. `ConnectionsModule` chỉ ship khi Phase 2 saved connections được yêu cầu.
+- Backend dùng NestJS module: `AuthModule`, `SessionsModule`, `ProfilesModule`, `MatchingModule`, `ChatModule`, `EngagementModule`, `ReportsModule`, `AdminModule`. `RoomsModule` không mount trong MVP hiện tại vì không có luồng tìm theo chủ đề. `ConnectionsModule` chỉ ship khi Phase 2 saved connections được yêu cầu.
 - Realtime dùng Socket.IO Gateway trong `ChatModule`.
 - Shared validation schema đặt ở `packages/shared`.
 - Mọi request body phải validate bằng Zod hoặc class-validator.
@@ -448,7 +440,7 @@ Khi dùng tài liệu này để code:
 - Không expose `passwordHash`, `refreshTokenHash`, `ipHash`, `deviceHash`.
 - Profile bắt buộc trước matching: `displayName`, `age`, `location`, `gender`, `desiredGenders`.
 - Không lưu địa chỉ chính xác; chỉ lưu tỉnh/thành hoặc region.
-- Viết seed rooms mặc định: `tam-su`, `giai-tri`, `hoc-tap`, `hen-ho`, `cong-nghe`.
+- Không seed/mount rooms trong MVP hiện tại; matching chỉ dựa trên giới tính mong muốn.
 - Tạo Playwright test cho flow guest -> match -> send message ở mức smoke test.
 
 ## 13. Definition Of Done MVP
@@ -463,7 +455,7 @@ Khi dùng tài liệu này để code:
 - User kết thúc chat và đổi người.
 - User đăng ký, đăng nhập, logout được.
 - User report/block được.
-- Conversation đủ mốc hiển thị gợi ý chủ đề đúng rule; lưu kết nối chỉ hiển thị nếu Phase 2 được bật.
+- Conversation đủ mốc hiển thị gợi ý câu hỏi đúng rule; lưu kết nối chỉ hiển thị nếu Phase 2 được bật.
 - Moderator xem report và xử lý được.
 - Không có payload nào gửi identifier nhạy cảm cho client khác.
 - Docker Compose chạy được PostgreSQL, Redis, API, worker, web.

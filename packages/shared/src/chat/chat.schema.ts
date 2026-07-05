@@ -2,7 +2,7 @@ import { z } from "zod";
 import type { Gender } from "../profile/profile.schema";
 import type { UserMode } from "../auth/auth.schema";
 
-export const conversationTypes = ["direct", "room"] as const;
+export const conversationTypes = ["direct"] as const;
 export const messageStatuses = ["sent", "delivered", "failed", "hidden_by_moderation"] as const;
 
 export type ConversationType = (typeof conversationTypes)[number];
@@ -32,8 +32,6 @@ export interface PublicMessage {
 export interface PublicConversation {
   id: string;
   type: ConversationType;
-  topicId?: string;
-  roomId?: string;
   status: "active" | "ended" | "locked";
   participants: PublicParticipant[];
   startedAt: string;
@@ -56,7 +54,7 @@ export const endConversationSchema = z.object({
 });
 
 export const engagementEventSchema = z.object({
-  type: z.literal("topic_suggestion_selected"),
+  type: z.literal("question_suggestion_selected"),
   payload: z.object({
     question: z.string().trim().min(1).max(300)
   })
