@@ -1,0 +1,38 @@
+{
+  "name": "@chatandanh/api",
+  "version": "0.1.0",
+  "private": true,
+  "type": "commonjs",
+  "scripts": {
+    "dev": "pnpm --filter @chatandanh/shared build && tsx watch src/main.ts",
+    "build": "pnpm --filter @chatandanh/shared build && tsc -p tsconfig.json",
+    "lint": "pnpm --filter @chatandanh/shared build && tsc -p tsconfig.json --noEmit",
+    "typecheck": "pnpm --filter @chatandanh/shared build && tsc -p tsconfig.json --noEmit",
+    "test": "vitest run --passWithNoTests"
+  },
+  "dependencies": {
+    "@chatandanh/shared": "workspace:*",
+    "@nestjs/common": "^11.1.3",
+    "@nestjs/config": "^4.0.2",
+    "@nestjs/core": "^11.1.3",
+    "@nestjs/event-emitter": "^3.0.1",
+    "@nestjs/jwt": "^11.0.0",
+    "@nestjs/platform-express": "^11.1.3",
+    "@nestjs/platform-socket.io": "^11.1.3",
+    "@nestjs/websockets": "^11.1.3",
+    "@prisma/client": "^6.12.0",
+    "bcryptjs": "^3.0.2",
+    "reflect-metadata": "^0.2.2",
+    "rxjs": "^7.8.2",
+    "socket.io": "^4.8.1",
+    "zod": "^3.25.76"
+  },
+  "devDependencies": {
+    "@types/express": "^5.0.3",
+    "@types/node": "^24.0.15",
+    "supertest": "^7.1.3",
+    "tsx": "^4.20.3",
+    "typescript": "^5.8.3",
+    "vitest": "^3.2.4"
+  }
+}

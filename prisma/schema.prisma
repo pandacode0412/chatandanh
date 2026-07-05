@@ -1,0 +1,439 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum AccountRole {
+  user
+  moderator
+  admin
+}
+
+enum AuthProvider {
+  email
+  google
+}
+
+enum Gender {
+  male
+  female
+  other
+}
+
+enum SessionStatus {
+  active
+  muted
+  banned
+  expired
+}
+
+enum ConversationType {
+  direct
+  room
+}
+
+enum ConversationStatus {
+  active
+  ended
+  locked
+}
+
+enum MessageStatus {
+  sent
+  delivered
+  failed
+  hidden_by_moderation
+}
+
+enum ReportReason {
+  spam
+  harassment
+  scam
+  sexual_content
+  minor_safety
+  violence
+  privacy
+  other
+}
+
+enum ReportStatus {
+  open
+  reviewing
+  resolved
+  dismissed
+}
+
+enum ReportSeverity {
+  low
+  medium
+  high
+  critical
+}
+
+enum ModerationActionType {
+  ignore
+  warn
+  mute
+  ban
+  hide_message
+  close_report
+}
+
+enum EngagementEventType {
+  topic_suggestion
+  quick_game
+  save_connection_prompt
+  call_unlock_prompt
+}
+
+enum ConnectionInviteStatus {
+  pending
+  accepted
+  declined
+  expired
+  revoked
+}
+
+enum AnonymousConnectionStatus {
+  active
+  revoked
+  blocked
+}
+
+model Account {
+  id           String       @id @default(uuid())
+  email        String?      @unique
+  googleSub    String?      @unique
+  authProvider AuthProvider @default(email)
+  passwordHash String?
+  displayName  String?
+  role         AccountRole  @default(user)
+  status       String       @default("active")
+  createdAt    DateTime     @default(now())
+  updatedAt    DateTime     @updatedAt
+  deletedAt    DateTime?
+
+  sessions          AnonymousSession[]
+  profile           UserProfile?
+  moderationActions ModerationAction[]
+  refreshTokens     RefreshToken[]
+}
+
+model AnonymousSession {
+  id              String        @id @default(uuid())
+  accountId       String?
+  baseAlias       String
+  avatarKey       String
+  profileComplete Boolean       @default(false)
+  status          SessionStatus @default(active)
+  ipHash          String?
+  deviceHash      String?
+  userAgentHash   String?
+  lastSeenAt      DateTime      @default(now())
+  expiresAt       DateTime?
+  createdAt       DateTime      @default(now())
+
+  account                    Account?                      @relation(fields: [accountId], references: [id])
+  profile                    SessionProfile?
+  members                    ConversationMember[]
+  submittedReports           Report[]                      @relation("ReportReporter")
+  targetedReports            Report[]                      @relation("ReportTarget")
+  blocksCreated              Block[]                       @relation("Blocker")
+  blocksReceived             Block[]                       @relation("Blocked")
+  engagementEvents           ConversationEngagementEvent[] @relation("EngagementActor")
+  connectionInvitesSent      ConnectionInvite[]            @relation("ConnectionInviter")
+  connectionInvitesReceived  ConnectionInvite[]            @relation("ConnectionInvitee")
+  connectionsAsA             AnonymousConnection[]         @relation("ConnectionMemberA")
+  connectionsAsB             AnonymousConnection[]         @relation("ConnectionMemberB")
+  matchesAsA                 MatchHistory[]                @relation("MatchHistoryA")
+  matchesAsB                 MatchHistory[]                @relation("MatchHistoryB")
+  moderationActions          ModerationAction[]            @relation("ModerationTarget")
+
+  @@index([accountId])
+  @@index([status])
+  @@index([expiresAt])
+}
+
+model UserProfile {
+  id             String   @id @default(uuid())
+  accountId      String   @unique
+  displayName    String
+  age            Int
+  location       String
+  gender         Gender
+  desiredGenders Json
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  account Account @relation(fields: [accountId], references: [id])
+
+  @@index([gender])
+  @@index([location])
+}
+
+model SessionProfile {
+  id             String   @id @default(uuid())
+  sessionId      String   @unique
+  displayName    String
+  age            Int
+  location       String
+  gender         Gender
+  desiredGenders Json
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  session AnonymousSession @relation(fields: [sessionId], references: [id])
+
+  @@index([gender])
+  @@index([location])
+}
+
+model Topic {
+  id          String  @id @default(uuid())
+  slug        String  @unique
+  name        String
+  description String?
+  enabled     Boolean @default(true)
+
+  rooms         Room[]
+  conversations Conversation[]
+}
+
+model Room {
+  id          String   @id @default(uuid())
+  topicId     String
+  slug        String   @unique
+  name        String
+  description String?
+  enabled     Boolean  @default(true)
+  createdAt   DateTime @default(now())
+
+  topic         Topic          @relation(fields: [topicId], references: [id])
+  conversations Conversation[]
+
+  @@index([topicId])
+  @@index([enabled])
+}
+
+model Conversation {
+  id                String             @id @default(uuid())
+  type              ConversationType
+  topicId           String?
+  roomId            String?
+  status            ConversationStatus @default(active)
+  startedAt         DateTime           @default(now())
+  endedAt           DateTime?
+  retentionDeleteAt DateTime?
+
+  topic               Topic?                        @relation(fields: [topicId], references: [id])
+  room                Room?                         @relation(fields: [roomId], references: [id])
+  members             ConversationMember[]
+  messages            Message[]
+  reports             Report[]
+  blocks              Block[]
+  engagementEvents    ConversationEngagementEvent[]
+  connectionInvites   ConnectionInvite[]
+  matchHistoriesAsLast MatchHistory[]
+
+  @@index([type, status])
+  @@index([topicId])
+  @@index([roomId])
+  @@index([retentionDeleteAt])
+}
+
+model ConversationMember {
+  id              String   @id @default(uuid())
+  conversationId  String
+  sessionId       String
+  publicAlias     String
+  publicAvatarKey String
+  publicAge       Int?
+  publicLocation  String?
+  publicGender    Gender?
+  role            String   @default("member")
+  joinedAt        DateTime @default(now())
+  leftAt          DateTime?
+
+  conversation Conversation      @relation(fields: [conversationId], references: [id])
+  session      AnonymousSession  @relation(fields: [sessionId], references: [id])
+  messages     Message[]
+
+  @@index([conversationId])
+  @@index([sessionId])
+}
+
+model Message {
+  id               String        @id @default(uuid())
+  conversationId   String
+  senderMemberId   String
+  clientMessageId  String?
+  body             String
+  status           MessageStatus @default(sent)
+  moderationStatus String        @default("clean")
+  createdAt        DateTime      @default(now())
+  deletedAt        DateTime?
+
+  conversation Conversation       @relation(fields: [conversationId], references: [id])
+  sender       ConversationMember @relation(fields: [senderMemberId], references: [id])
+  reports      Report[]
+
+  @@index([conversationId, createdAt])
+  @@index([senderMemberId, createdAt])
+  @@unique([senderMemberId, clientMessageId])
+}
+
+model Block {
+  id               String   @id @default(uuid())
+  blockerSessionId String
+  blockedSessionId String
+  conversationId   String?
+  reason           String?
+  createdAt        DateTime @default(now())
+
+  blockerSession AnonymousSession @relation("Blocker", fields: [blockerSessionId], references: [id])
+  blockedSession AnonymousSession @relation("Blocked", fields: [blockedSessionId], references: [id])
+  conversation   Conversation?    @relation(fields: [conversationId], references: [id])
+
+  @@index([blockerSessionId])
+  @@index([blockedSessionId])
+  @@unique([blockerSessionId, blockedSessionId])
+}
+
+model MatchHistory {
+  id                 String   @id @default(uuid())
+  identityAKey       String
+  identityBKey       String
+  sessionAId         String?
+  sessionBId         String?
+  lastConversationId String?
+  conversationCount  Int      @default(1)
+  firstMatchedAt     DateTime @default(now())
+  lastMatchedAt      DateTime @default(now())
+  expiresAt          DateTime?
+
+  sessionA         AnonymousSession? @relation("MatchHistoryA", fields: [sessionAId], references: [id])
+  sessionB         AnonymousSession? @relation("MatchHistoryB", fields: [sessionBId], references: [id])
+  lastConversation Conversation?     @relation(fields: [lastConversationId], references: [id])
+
+  @@unique([identityAKey, identityBKey])
+  @@index([identityAKey])
+  @@index([identityBKey])
+  @@index([lastMatchedAt])
+  @@index([expiresAt])
+}
+
+model ConversationEngagementEvent {
+  id             String              @id @default(uuid())
+  conversationId String
+  actorSessionId String?
+  type           EngagementEventType
+  payloadJson    Json?
+  createdAt      DateTime            @default(now())
+
+  conversation Conversation       @relation(fields: [conversationId], references: [id])
+  actorSession AnonymousSession?  @relation("EngagementActor", fields: [actorSessionId], references: [id])
+
+  @@index([conversationId, createdAt])
+  @@index([type, createdAt])
+}
+
+model ConnectionInvite {
+  id               String                 @id @default(uuid())
+  conversationId   String
+  inviterSessionId String
+  inviteeSessionId String
+  status           ConnectionInviteStatus @default(pending)
+  createdAt        DateTime               @default(now())
+  respondedAt      DateTime?
+  expiresAt        DateTime?
+
+  conversation   Conversation       @relation(fields: [conversationId], references: [id])
+  inviterSession AnonymousSession   @relation("ConnectionInviter", fields: [inviterSessionId], references: [id])
+  inviteeSession AnonymousSession   @relation("ConnectionInvitee", fields: [inviteeSessionId], references: [id])
+  connection     AnonymousConnection?
+
+  @@index([conversationId])
+  @@index([inviteeSessionId, status])
+  @@index([expiresAt])
+}
+
+model AnonymousConnection {
+  id               String                    @id @default(uuid())
+  memberASessionId String
+  memberBSessionId String
+  inviteId         String?                   @unique
+  status           AnonymousConnectionStatus @default(active)
+  createdAt        DateTime                  @default(now())
+  revokedAt        DateTime?
+
+  memberASession AnonymousSession @relation("ConnectionMemberA", fields: [memberASessionId], references: [id])
+  memberBSession AnonymousSession @relation("ConnectionMemberB", fields: [memberBSessionId], references: [id])
+  invite         ConnectionInvite? @relation(fields: [inviteId], references: [id])
+
+  @@unique([memberASessionId, memberBSessionId])
+  @@index([memberASessionId])
+  @@index([memberBSessionId])
+  @@index([status])
+}
+
+model Report {
+  id                String         @id @default(uuid())
+  reporterSessionId String
+  targetSessionId   String?
+  conversationId    String
+  messageId         String?
+  reason            ReportReason
+  note              String?
+  snapshotJson      Json?
+  status            ReportStatus   @default(open)
+  severity          ReportSeverity @default(low)
+  createdAt         DateTime       @default(now())
+  resolvedAt        DateTime?
+
+  reporterSession AnonymousSession  @relation("ReportReporter", fields: [reporterSessionId], references: [id])
+  targetSession   AnonymousSession? @relation("ReportTarget", fields: [targetSessionId], references: [id])
+  conversation    Conversation      @relation(fields: [conversationId], references: [id])
+  message         Message?          @relation(fields: [messageId], references: [id])
+  actions         ModerationAction[]
+
+  @@index([status, createdAt])
+  @@index([reason, createdAt])
+  @@index([targetSessionId])
+}
+
+model ModerationAction {
+  id                 String               @id @default(uuid())
+  reportId           String?
+  moderatorAccountId String
+  targetSessionId    String?
+  action             ModerationActionType
+  durationMinutes    Int?
+  note               String?
+  createdAt          DateTime             @default(now())
+
+  report           Report?           @relation(fields: [reportId], references: [id])
+  moderatorAccount Account           @relation(fields: [moderatorAccountId], references: [id])
+  targetSession    AnonymousSession? @relation("ModerationTarget", fields: [targetSessionId], references: [id])
+
+  @@index([reportId])
+  @@index([targetSessionId])
+  @@index([createdAt])
+}
+
+model RefreshToken {
+  id        String    @id @default(uuid())
+  accountId String
+  tokenHash String
+  expiresAt DateTime
+  revokedAt DateTime?
+  createdAt DateTime  @default(now())
+
+  account Account @relation(fields: [accountId], references: [id])
+
+  @@index([accountId])
+  @@index([expiresAt])
+}

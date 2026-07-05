@@ -1,0 +1,11 @@
+FROM node:24-alpine
+
+RUN apk add --no-cache openssl libc6-compat && npm install -g pnpm@10.13.1
+
+WORKDIR /workspace
+
+COPY . .
+
+RUN pnpm install --frozen-lockfile
+
+CMD ["sh", "-lc", "pnpm dev"]

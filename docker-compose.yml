@@ -1,0 +1,121 @@
+name: chatandanh
+
+services:
+  api:
+    build:
+      context: .
+      dockerfile: Dockerfile.dev
+    container_name: chatandanh-api
+    command: sh -lc "pnpm prisma:generate && pnpm --filter @chatandanh/api dev"
+    restart: unless-stopped
+    environment:
+      NODE_ENV: development
+      PORT: 3000
+      WEB_ORIGIN: http://localhost:5173
+      DATABASE_URL: postgresql://${POSTGRES_USER:-chatandanh}:${POSTGRES_PASSWORD:-chatandanh}@postgres:5432/${POSTGRES_DB:-chatandanh}
+      REDIS_URL: redis://redis:6379
+      JWT_ACCESS_SECRET: ${JWT_ACCESS_SECRET:-dev-change-me}
+      JWT_ACCESS_EXPIRES_IN: ${JWT_ACCESS_EXPIRES_IN:-15m}
+      REFRESH_TOKEN_SECRET: ${REFRESH_TOKEN_SECRET:-dev-change-me}
+      REFRESH_TOKEN_EXPIRES_DAYS: ${REFRESH_TOKEN_EXPIRES_DAYS:-30}
+      COOKIE_DOMAIN: ${COOKIE_DOMAIN:-localhost}
+      COOKIE_SECURE: ${COOKIE_SECURE:-false}
+      SAFETY_HASH_SECRET: ${SAFETY_HASH_SECRET:-dev-change-me}
+      FEATURE_TOPIC_SUGGESTION: ${FEATURE_TOPIC_SUGGESTION:-true}
+      FEATURE_QUICK_GAME: ${FEATURE_QUICK_GAME:-false}
+      FEATURE_SAVE_CONNECTION: ${FEATURE_SAVE_CONNECTION:-false}
+      FEATURE_AUDIO_CALL: ${FEATURE_AUDIO_CALL:-false}
+      FEATURE_VIDEO_CALL: ${FEATURE_VIDEO_CALL:-false}
+    ports:
+      - "${PORT:-3000}:3000"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    networks:
+      - chatandanh
+
+  web:
+    build:
+      context: .
+      dockerfile: Dockerfile.dev
+    container_name: chatandanh-web
+    command: sh -lc "pnpm --filter @chatandanh/web dev --host 0.0.0.0"
+    restart: unless-stopped
+    environment:
+      NODE_ENV: development
+      VITE_API_URL: http://localhost:3000
+    ports:
+      - "${WEB_PORT:-5173}:5173"
+    depends_on:
+      - api
+    networks:
+      - chatandanh
+
+  worker:
+    build:
+      context: .
+      dockerfile: Dockerfile.dev
+    container_name: chatandanh-worker
+    command: sh -lc "pnpm --filter @chatandanh/worker dev"
+    restart: unless-stopped
+    environment:
+      NODE_ENV: development
+      DATABASE_URL: postgresql://${POSTGRES_USER:-chatandanh}:${POSTGRES_PASSWORD:-chatandanh}@postgres:5432/${POSTGRES_DB:-chatandanh}
+      REDIS_URL: redis://redis:6379
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    networks:
+      - chatandanh
+
+  postgres:
+    image: postgres:16-alpine
+    container_name: chatandanh-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-chatandanh}
+      POSTGRES_USER: ${POSTGRES_USER:-chatandanh}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-chatandanh}
+      TZ: UTC
+    ports:
+      - "${POSTGRES_PORT:-5432}:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+    networks:
+      - chatandanh
+
+  redis:
+    image: redis:7-alpine
+    container_name: chatandanh-redis
+    restart: unless-stopped
+    command: ["redis-server", "--appendonly", "yes"]
+    ports:
+      - "${REDIS_PORT:-6379}:6379"
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 5s
+    networks:
+      - chatandanh
+
+volumes:
+  postgres_data:
+  redis_data:
+
+networks:
+  chatandanh:
+    driver: bridge

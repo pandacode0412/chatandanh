@@ -1,0 +1,12 @@
+node_modules
+**/node_modules
+.pnpm-store
+**/.pnpm-store
+dist
+**/dist
+coverage
+playwright-report
+test-results
+.git
+.env
+*.log
