@@ -45,6 +45,16 @@ API: http://localhost:3000/api
 Socket.IO: http://localhost:3000/socket.io
 ```
 
+## Đăng Nhập Google Local
+
+Trong Google Cloud Console, tạo OAuth Client loại Web application và thêm Authorized redirect URI:
+
+```text
+http://localhost:3000/api/auth/google/callback
+```
+
+Sau đó điền `GOOGLE_CLIENT_ID` và `GOOGLE_CLIENT_SECRET` vào `.env`. App không yêu cầu hoặc lưu mật khẩu Gmail; sau khi Google xác thực xong, API set refresh cookie httpOnly rồi web nhận access token qua `/api/auth/refresh`.
+
 Nếu muốn chạy lệnh Node/pnpm mà máy chưa cài Node, dùng container:
 
 ```bash

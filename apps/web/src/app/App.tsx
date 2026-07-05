@@ -4,6 +4,7 @@ import {
   AtSign,
   Ban,
   BarChart3,
+  Chrome,
   DoorOpen,
   Flag,
   Gavel,
@@ -31,6 +32,7 @@ import {
   type AdminOverview,
   type AdminReportSummary,
   type AdminUserSummary,
+  type AuthResponse,
   type ChatProfile,
   type ModerationAction,
   type PublicParticipant,
@@ -47,8 +49,10 @@ import {
   getAdminUsers,
   getMessages,
   getProfile,
+  googleAuthUrl,
   loginWithEmail,
   logoutSession,
+  refreshSession,
   reportConversation,
   registerWithEmail,
   startMatching,
@@ -62,7 +66,6 @@ const genderLabels: Record<ChatProfile["gender"], string> = {
   other: "Khác"
 };
 
-const locations = ["TP. Hồ Chí Minh", "Hà Nội", "Đà Nẵng", "Cần Thơ", "Hải Phòng", "Đà Lạt", "Khu vực khác"];
 type AuthMode = "login" | "register";
 
 export function App() {
@@ -85,7 +88,7 @@ export function App() {
     clearSession
   } = useSessionStore();
   const [socket, setSocket] = useState<Socket | null>(null);
-  const [status, setStatus] = useState("Sẵn sàng bắt đầu một phiên chat ẩn danh.");
+  const [, setStatus] = useState("Sẵn sàng bắt đầu một phiên chat ẩn danh.");
   const [matching, setMatching] = useState(false);
   const [savingPreference, setSavingPreference] = useState(false);
 
@@ -138,7 +141,6 @@ export function App() {
       transports: ["websocket"]
     });
 
-    nextSocket.on("socket:ready", () => setStatus("Đã kết nối realtime."));
     nextSocket.on("matching:paired", async (payload: { conversationId: string; participant: PublicParticipant }) => {
       setMatching(false);
       setMatchingRequestId(null);
@@ -191,6 +193,38 @@ export function App() {
     setAdminOpen(true);
     void loadAdminDashboard(accessToken);
   }, [accessToken, role]);
+
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    const googleAuthDone = params.get("auth") === "google";
+    const authErrorMessage = params.get("authError");
+    if (!googleAuthDone && !authErrorMessage) {
+      return;
+    }
+
+    window.history.replaceState({}, document.title, `${window.location.pathname}${window.location.hash}`);
+
+    if (authErrorMessage) {
+      setAuthMode("login");
+      setAuthOpen(true);
+      setAuthError(authErrorMessage);
+      setStatus(authErrorMessage);
+      return;
+    }
+
+    setAuthMode("login");
+    setAuthOpen(true);
+    setAuthBusy(true);
+    setAuthError("");
+    setStatus("Đang hoàn tất đăng nhập Google...");
+    void refreshSession()
+      .then((response) => applyAuthResponse(response))
+      .catch((error) => {
+        setAuthError(error instanceof Error ? error.message : "Không hoàn tất được đăng nhập Google.");
+        setStatus("Không hoàn tất được đăng nhập Google.");
+      })
+      .finally(() => setAuthBusy(false));
+  }, []);
 
   async function handleStartGuest() {
     setStatus("Đang tạo phiên ẩn danh...");
@@ -258,6 +292,36 @@ export function App() {
     }
   }
 
+  async function applyAuthResponse(response: AuthResponse) {
+    setSession({
+      accessToken: response.accessToken,
+      displayAlias: response.account.displayName,
+      avatarKey: "avatar_registered",
+      role: response.account.role
+    });
+    const profileResult = await getProfile(response.accessToken);
+    if (profileResult.profile) {
+      setProfile(profileResult.profile);
+      setStatus(
+        response.account.role === "admin" || response.account.role === "moderator"
+          ? "Đã đăng nhập khu vực quản trị."
+          : "Đã đăng nhập. Bạn có thể tìm người lạ."
+      );
+    } else {
+      setStatus(
+        response.account.role === "admin" || response.account.role === "moderator"
+          ? "Đã đăng nhập khu vực quản trị."
+          : "Đã đăng nhập. Hoàn tất hồ sơ nhanh để bắt đầu."
+      );
+    }
+    if (response.account.role === "admin" || response.account.role === "moderator") {
+      setAdminOpen(true);
+      void loadAdminDashboard(response.accessToken);
+    }
+    setAuthOpen(false);
+    setAuthPassword("");
+  }
+
   async function handleAuthSubmit(event: React.FormEvent) {
     event.preventDefault();
     setAuthBusy(true);
@@ -274,30 +338,17 @@ export function App() {
             })
           : await loginWithEmail({ email, password });
 
-      setSession({
-        accessToken: response.accessToken,
-        displayAlias: response.account.displayName,
-        avatarKey: "avatar_registered",
-        role: response.account.role
-      });
-      const profileResult = await getProfile(response.accessToken);
-      if (profileResult.profile) {
-        setProfile(profileResult.profile);
-        setStatus(response.account.role === "admin" || response.account.role === "moderator" ? "Đã đăng nhập khu vực quản trị." : "Đã đăng nhập. Bạn có thể tìm người lạ.");
-      } else {
-        setStatus(response.account.role === "admin" || response.account.role === "moderator" ? "Đã đăng nhập khu vực quản trị." : "Đã đăng nhập. Hoàn tất hồ sơ nhanh để bắt đầu.");
-      }
-      if (response.account.role === "admin" || response.account.role === "moderator") {
-        setAdminOpen(true);
-        void loadAdminDashboard(response.accessToken);
-      }
-      setAuthOpen(false);
-      setAuthPassword("");
+      await applyAuthResponse(response);
     } catch (error) {
       setAuthError(error instanceof Error ? error.message : "Không đăng nhập được.");
     } finally {
       setAuthBusy(false);
     }
+  }
+
+  function handleGoogleLogin() {
+    setAuthError("");
+    window.location.assign(googleAuthUrl());
   }
 
   async function handleLogout() {
@@ -530,6 +581,7 @@ export function App() {
                 onPasswordChange={setAuthPassword}
                 onDisplayNameChange={setAuthDisplayName}
                 onAuthSubmit={(event) => void handleAuthSubmit(event)}
+                onGoogleLogin={handleGoogleLogin}
                 onLogout={() => void handleLogout()}
               />
               <button className="ghost-button full-width" onClick={() => setAuthOpen(false)}>
@@ -584,18 +636,16 @@ export function App() {
 
       <section className="workspace">
         <header className="topbar">
-          <div className="topbar-left">
-            <button
-              className="login-button"
-              onClick={accessToken ? () => void handleLogout() : () => setAuthOpen(true)}
-            >
-              {accessToken ? <LogOut size={16} /> : <LogIn size={16} />}
-              {accessToken ? "Đăng xuất" : "Đăng nhập"}
-            </button>
-          </div>
           <div className="brand-mark">
-            <span>Chat Ẩn Danh</span>
-            <small>{onlineCount} người đang online</small>
+            <span className="brand-badge">Ẩ</span>
+            <div className="brand-copy">
+              <span>Chat Ẩn Danh</span>
+              <small>Ghép đôi ẩn danh, trò chuyện văn minh</small>
+            </div>
+          </div>
+          <div className="topbar-presence" aria-label={`${onlineCount} người đang online`}>
+            <span className="online-dot" aria-hidden="true" />
+            <span>{onlineCount.toLocaleString("vi-VN")} người online</span>
           </div>
           <div className="topbar-actions">
             {isStaff && (
@@ -614,14 +664,41 @@ export function App() {
               <UserRound size={16} />
               <span>{profile?.displayName ?? displayAlias ?? "Khách mới"}</span>
             </div>
+            <button
+              className="login-button"
+              onClick={accessToken ? () => void handleLogout() : () => setAuthOpen(true)}
+            >
+              {accessToken ? <LogOut size={16} /> : <LogIn size={16} />}
+              <span className="login-button-label">{accessToken ? "Đăng xuất" : "Đăng nhập"}</span>
+            </button>
           </div>
         </header>
 
-        <div className="status-line">{status}</div>
-
         <div className="main-grid">
-          <section className="primary-panel">
-            {currentStep === "profile" && <ProfileSetup onSubmit={handleProfileSubmit} />}
+          <section className={`primary-panel ${currentStep === "profile" || currentStep === "match" ? "centered-panel" : ""}`}>
+            {currentStep === "profile" && (
+              <ProfileSetup
+                onSubmit={handleProfileSubmit}
+                enableAgeFilter={enableAgeFilter}
+                ageMin={ageMin}
+                ageMax={ageMax}
+                onEnableAgeFilterChange={setEnableAgeFilter}
+                onAgeMinChange={(value) => {
+                  setEnableAgeFilter(true);
+                  setAgeMin(value);
+                  if (value > ageMax) {
+                    setAgeMax(value);
+                  }
+                }}
+                onAgeMaxChange={(value) => {
+                  setEnableAgeFilter(true);
+                  setAgeMax(value);
+                  if (value < ageMin) {
+                    setAgeMin(value);
+                  }
+                }}
+              />
+            )}
 
             {currentStep === "match" && (
               <MatchingPanel
@@ -688,6 +765,7 @@ export function App() {
               onPasswordChange={setAuthPassword}
               onDisplayNameChange={setAuthDisplayName}
               onAuthSubmit={(event) => void handleAuthSubmit(event)}
+              onGoogleLogin={handleGoogleLogin}
               onLogout={() => void handleLogout()}
             />
             <button className="ghost-button full-width" onClick={() => setAuthOpen(false)}>Đóng</button>
@@ -798,133 +876,173 @@ export function App() {
 
               {activeSettingsTab === "filter" && (
                 <div className="settings-filter-tab filter-options-stack">
-                  <div className="filter-row">
-                    <label className="checkbox-label">
-                      <input
-                        type="checkbox"
-                        checked={enableAgeFilter}
-                        onChange={(e) => setEnableAgeFilter(e.target.checked)}
-                      />
-                      <span>Lọc theo Tuổi đối phương</span>
-                    </label>
-                    {enableAgeFilter && (
-                      <div className="filter-inputs">
-                        <label>
-                          Từ
-                          <input
-                            type="number"
-                            min={18}
-                            max={99}
-                            value={ageMin}
-                            onChange={(e) => setAgeMin(Number(e.target.value))}
-                          />
-                        </label>
-                        <label>
-                          Đến
-                          <input
-                            type="number"
-                            min={18}
-                            max={99}
-                            value={ageMax}
-                            onChange={(e) => setAgeMax(Number(e.target.value))}
-                          />
-                        </label>
-                      </div>
-                    )}
+                  <div className="filter-summary-row">
+                    <div>
+                      <strong>Ưu tiên ghép linh hoạt</strong>
+                      <span>Tắt tiêu chí nào thì hệ thống xem tiêu chí đó là bất kỳ.</span>
+                    </div>
+                    <button
+                      type="button"
+                      className="ghost-button filter-reset-button"
+                      onClick={() => {
+                        setEnableAgeFilter(false);
+                        setEnableGenderFilter(false);
+                        setEnableLocationFilter(false);
+                        setFilterGenders([...genders]);
+                        setFilterLocations([]);
+                      }}
+                    >
+                      Bất kỳ
+                    </button>
                   </div>
 
-                  <div className="filter-row">
-                    <label className="checkbox-label">
-                      <input
-                        type="checkbox"
-                        checked={enableGenderFilter}
-                        onChange={(e) => setEnableGenderFilter(e.target.checked)}
-                      />
-                      <span>Lọc theo Giới tính đối phương</span>
-                    </label>
-                    {enableGenderFilter && (
-                      <div className="gender-choices">
-                        {genders.map((g) => (
-                          <label key={g} className="choice-item">
-                            <input
-                              type="checkbox"
-                              checked={filterGenders.includes(g)}
-                              onChange={(e) => {
-                                if (e.target.checked) {
-                                  setFilterGenders([...filterGenders, g]);
-                                } else {
-                                  setFilterGenders(filterGenders.filter((x) => x !== g));
-                                }
-                              }}
-                            />
-                            <span>{g === "male" ? "Nam" : g === "female" ? "Nữ" : "LGBT"}</span>
-                          </label>
+                  <section className={`filter-row ${enableAgeFilter ? "active" : ""}`}>
+                    <div className="filter-row-head">
+                      <div>
+                        <span className="filter-kicker">Tuổi</span>
+                        <strong>Khoảng tuổi muốn gặp</strong>
+                        <small>{enableAgeFilter ? `${ageMin} - ${ageMax} tuổi` : "Đang để bất kỳ độ tuổi phù hợp"}</small>
+                      </div>
+                      <label className="filter-switch" aria-label="Bật lọc theo tuổi">
+                        <input
+                          type="checkbox"
+                          checked={enableAgeFilter}
+                          onChange={(e) => setEnableAgeFilter(e.target.checked)}
+                        />
+                        <span />
+                      </label>
+                    </div>
+                    <div className="filter-controls age-range-controls" aria-disabled={!enableAgeFilter}>
+                      <label>
+                        Từ
+                        <input
+                          type="number"
+                          min={18}
+                          max={99}
+                          value={ageMin}
+                          disabled={!enableAgeFilter}
+                          onChange={(e) => setAgeMin(Number(e.target.value))}
+                        />
+                      </label>
+                      <label>
+                        Đến
+                        <input
+                          type="number"
+                          min={18}
+                          max={99}
+                          value={ageMax}
+                          disabled={!enableAgeFilter}
+                          onChange={(e) => setAgeMax(Number(e.target.value))}
+                        />
+                      </label>
+                    </div>
+                  </section>
+
+                  <section className={`filter-row ${enableGenderFilter ? "active" : ""}`}>
+                    <div className="filter-row-head">
+                      <div>
+                        <span className="filter-kicker">Giới tính</span>
+                        <strong>Giới tính đối phương</strong>
+                        <small>{enableGenderFilter ? filterGenders.map((g) => genderLabels[g]).join(", ") : "Nam, Nữ hoặc Khác"}</small>
+                      </div>
+                      <label className="filter-switch" aria-label="Bật lọc theo giới tính">
+                        <input
+                          type="checkbox"
+                          checked={enableGenderFilter}
+                          onChange={(e) => setEnableGenderFilter(e.target.checked)}
+                        />
+                        <span />
+                      </label>
+                    </div>
+                    <div className="gender-choices filter-controls" aria-disabled={!enableGenderFilter}>
+                      {genders.map((g) => (
+                        <label key={g} className="choice-item">
+                          <input
+                            type="checkbox"
+                            disabled={!enableGenderFilter}
+                            checked={filterGenders.includes(g)}
+                            onChange={(e) => {
+                              if (e.target.checked) {
+                                setFilterGenders([...filterGenders, g]);
+                              } else {
+                                setFilterGenders(filterGenders.filter((x) => x !== g));
+                              }
+                            }}
+                          />
+                          <span>{genderLabels[g]}</span>
+                        </label>
+                      ))}
+                    </div>
+                  </section>
+
+                  <section className={`filter-row ${enableLocationFilter ? "active" : ""}`}>
+                    <div className="filter-row-head">
+                      <div>
+                        <span className="filter-kicker">Tỉnh thành</span>
+                        <strong>Khu vực muốn gặp</strong>
+                        <small>{enableLocationFilter && filterLocations.length ? `${filterLocations.length} nơi đã chọn` : "Không giới hạn tỉnh thành"}</small>
+                      </div>
+                      <label className="filter-switch" aria-label="Bật lọc theo tỉnh thành">
+                        <input
+                          type="checkbox"
+                          checked={enableLocationFilter}
+                          onChange={(e) => setEnableLocationFilter(e.target.checked)}
+                        />
+                        <span />
+                      </label>
+                    </div>
+                    <div className="location-filter-box filter-controls" aria-disabled={!enableLocationFilter}>
+                      <div className="location-search-wrapper">
+                        <input
+                          type="text"
+                          placeholder="Tìm tỉnh/thành..."
+                          value={locInput}
+                          disabled={!enableLocationFilter}
+                          onChange={(e) => {
+                            setLocInput(e.target.value);
+                            setShowLocSuggestions(true);
+                          }}
+                          onFocus={() => setShowLocSuggestions(true)}
+                        />
+                        {showLocSuggestions && locInput && enableLocationFilter && (
+                          <ul className="suggestions-list">
+                            {vietnamLocations
+                              .filter((loc) => loc.toLowerCase().includes(locInput.toLowerCase()))
+                              .slice(0, 5)
+                              .map((loc) => (
+                                <li
+                                  key={loc}
+                                  onClick={() => {
+                                    if (!filterLocations.includes(loc)) {
+                                      setFilterLocations([...filterLocations, loc]);
+                                    }
+                                    setLocInput("");
+                                    setShowLocSuggestions(false);
+                                  }}
+                                >
+                                  {loc}
+                                </li>
+                              ))}
+                          </ul>
+                        )}
+                      </div>
+
+                      <div className="selected-locations-tags">
+                        {filterLocations.length === 0 && <span className="loc-empty">Chưa chọn tỉnh thành</span>}
+                        {filterLocations.map((loc) => (
+                          <span key={loc} className="loc-tag">
+                            {loc}
+                            <button
+                              type="button"
+                              onClick={() => setFilterLocations(filterLocations.filter((x) => x !== loc))}
+                            >
+                              &times;
+                            </button>
+                          </span>
                         ))}
                       </div>
-                    )}
-                  </div>
-
-                  <div className="filter-row">
-                    <label className="checkbox-label">
-                      <input
-                        type="checkbox"
-                        checked={enableLocationFilter}
-                        onChange={(e) => setEnableLocationFilter(e.target.checked)}
-                      />
-                      <span>Lọc theo Tỉnh thành đối phương</span>
-                    </label>
-                    {enableLocationFilter && (
-                      <div className="location-filter-box">
-                        <div className="location-search-wrapper">
-                          <input
-                            type="text"
-                            placeholder="Tìm tỉnh/thành..."
-                            value={locInput}
-                            onChange={(e) => {
-                              setLocInput(e.target.value);
-                              setShowLocSuggestions(true);
-                            }}
-                            onFocus={() => setShowLocSuggestions(true)}
-                          />
-                          {showLocSuggestions && locInput && (
-                            <ul className="suggestions-list">
-                              {vietnamLocations
-                                .filter((loc) => loc.toLowerCase().includes(locInput.toLowerCase()))
-                                .slice(0, 5)
-                                .map((loc) => (
-                                  <li
-                                    key={loc}
-                                    onClick={() => {
-                                      if (!filterLocations.includes(loc)) {
-                                        setFilterLocations([...filterLocations, loc]);
-                                      }
-                                      setLocInput("");
-                                      setShowLocSuggestions(false);
-                                    }}
-                                  >
-                                    {loc}
-                                  </li>
-                                ))}
-                            </ul>
-                          )}
-                        </div>
-
-                        <div className="selected-locations-tags">
-                          {filterLocations.map((loc) => (
-                            <span key={loc} className="loc-tag">
-                              {loc}
-                              <button
-                                type="button"
-                                onClick={() => setFilterLocations(filterLocations.filter((x) => x !== loc))}
-                              >
-                                &times;
-                              </button>
-                            </span>
-                          ))}
-                        </div>
-                      </div>
-                    )}
-                  </div>
+                    </div>
+                  </section>
                 </div>
               )}
             </div>
@@ -977,7 +1095,23 @@ function Lobby({ onStart }: { onStart: () => void }) {
   );
 }
 
-function ProfileSetup({ onSubmit }: { onSubmit: (profile: ChatProfile) => Promise<void> }) {
+function ProfileSetup({
+  onSubmit,
+  enableAgeFilter,
+  ageMin,
+  ageMax,
+  onEnableAgeFilterChange,
+  onAgeMinChange,
+  onAgeMaxChange
+}: {
+  onSubmit: (profile: ChatProfile) => Promise<void>;
+  enableAgeFilter: boolean;
+  ageMin: number;
+  ageMax: number;
+  onEnableAgeFilterChange: (enabled: boolean) => void;
+  onAgeMinChange: (value: number) => void;
+  onAgeMaxChange: (value: number) => void;
+}) {
   const [displayName, setDisplayName] = useState("Mây");
   const [age, setAge] = useState(22);
   const [location, setLocation] = useState("TP. Hồ Chí Minh");
@@ -1013,13 +1147,51 @@ function ProfileSetup({ onSubmit }: { onSubmit: (profile: ChatProfile) => Promis
         <label>
           Tỉnh thành (*)
           <select value={location} onChange={(event) => setLocation(event.target.value)}>
-            {locations.map((item) => <option key={item}>{item}</option>)}
+            {vietnamLocations.map((item) => <option key={item}>{item}</option>)}
           </select>
         </label>
       </section>
 
       <section className="setup-section">
         <h2>Bạn muốn gặp:</h2>
+        <fieldset className="setup-age-preference">
+          <legend>Tuổi</legend>
+          <div className="age-preference-header">
+            <span>{enableAgeFilter ? `${ageMin} - ${ageMax} tuổi` : "Bất kỳ độ tuổi phù hợp"}</span>
+            <label className="setup-mini-switch" aria-label="Bật chọn khoảng tuổi muốn gặp">
+              <input
+                type="checkbox"
+                checked={enableAgeFilter}
+                onChange={(event) => onEnableAgeFilterChange(event.target.checked)}
+              />
+              <span />
+            </label>
+          </div>
+          <div className="setup-age-inputs" aria-disabled={!enableAgeFilter}>
+            <label>
+              Từ
+              <input
+                type="number"
+                min={18}
+                max={99}
+                value={ageMin}
+                disabled={!enableAgeFilter}
+                onChange={(event) => onAgeMinChange(Number(event.target.value))}
+              />
+            </label>
+            <label>
+              Đến
+              <input
+                type="number"
+                min={18}
+                max={99}
+                value={ageMax}
+                disabled={!enableAgeFilter}
+                onChange={(event) => onAgeMaxChange(Number(event.target.value))}
+              />
+            </label>
+          </div>
+        </fieldset>
         <GenderPreference
           label="Giới tính"
           value={desiredGenders}
@@ -1286,6 +1458,7 @@ function AuthPanel({
   onPasswordChange,
   onDisplayNameChange,
   onAuthSubmit,
+  onGoogleLogin,
   onLogout
 }: {
   accessToken: string | null;
@@ -1302,6 +1475,7 @@ function AuthPanel({
   onPasswordChange: (value: string) => void;
   onDisplayNameChange: (value: string) => void;
   onAuthSubmit: (event: React.FormEvent) => void;
+  onGoogleLogin: () => void;
   onLogout: () => void;
 }) {
   if (accessToken) {
@@ -1345,6 +1519,11 @@ function AuthPanel({
           Đăng ký
         </button>
       </div>
+      <button className="secondary-button full-width google-auth-button" type="button" onClick={onGoogleLogin} disabled={authBusy}>
+        <Chrome size={18} />
+        Tiếp tục với Google
+      </button>
+      <div className="auth-divider">hoặc dùng email</div>
       <form className="auth-form" onSubmit={onAuthSubmit}>
         {authMode === "register" && (
           <label>

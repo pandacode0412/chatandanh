@@ -60,6 +60,14 @@ export function loginWithEmail(body: LoginRequest) {
   });
 }
 
+export function googleAuthUrl() {
+  return `${API_URL}/api/auth/google`;
+}
+
+export function refreshSession() {
+  return apiRequest<AuthResponse>("/auth/refresh", { method: "POST" });
+}
+
 export function logoutSession() {
   return apiRequest<{ loggedOut: boolean }>("/auth/logout", { method: "POST" });
 }

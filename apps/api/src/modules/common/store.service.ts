@@ -44,7 +44,9 @@ interface SessionRecord {
 interface AccountRecord {
   id: string;
   email: string;
-  passwordHash: string;
+  googleSub?: string;
+  authProvider: "email" | "google";
+  passwordHash: string | null;
   displayName: string;
   role: "user" | "moderator" | "admin";
   profile: ChatProfile | null;
@@ -114,6 +116,7 @@ export class StoreService {
   private readonly sessions = new Map<string, SessionRecord>();
   private readonly accounts = new Map<string, AccountRecord>();
   private readonly accountsByEmail = new Map<string, string>();
+  private readonly accountsByGoogleSub = new Map<string, string>();
   private readonly conversations = new Map<string, ConversationRecord>();
   private readonly matchingQueue: MatchingRequestRecord[] = [];
   private readonly matchHistory = new Set<string>();
@@ -157,13 +160,13 @@ export class StoreService {
       throw new AppException("VALIDATION_ERROR", "Email đã được đăng ký");
     }
 
-    const role = normalized.endsWith("@admin.local") ? "admin" : normalized.endsWith("@moderator.local") ? "moderator" : "user";
     const account: AccountRecord = {
       id: makeId("acc"),
       email: normalized,
+      authProvider: "email",
       passwordHash,
       displayName,
-      role,
+      role: inferRoleFromEmail(normalized),
       profile,
       banCount: 0,
       createdAt: new Date().toISOString()
@@ -176,6 +179,54 @@ export class StoreService {
   findAccountByEmail(email: string): AccountRecord | null {
     const accountId = this.accountsByEmail.get(email.toLowerCase());
     return accountId ? this.accounts.get(accountId) ?? null : null;
+  }
+
+  findAccountById(accountId: string): AccountRecord | null {
+    return this.accounts.get(accountId) ?? null;
+  }
+
+  findAccountByGoogleSub(googleSub: string): AccountRecord | null {
+    const accountId = this.accountsByGoogleSub.get(googleSub);
+    return accountId ? this.accounts.get(accountId) ?? null : null;
+  }
+
+  createOrFindGoogleAccount(payload: { googleSub: string; email: string; displayName?: string }): AccountRecord {
+    const existingByGoogle = this.findAccountByGoogleSub(payload.googleSub);
+    if (existingByGoogle) {
+      return existingByGoogle;
+    }
+
+    const normalized = payload.email.toLowerCase();
+    const displayName = payload.displayName?.trim() || normalized.split("@")[0] || "Bạn mới";
+    const existingByEmail = this.findAccountByEmail(normalized);
+    if (existingByEmail) {
+      if (existingByEmail.googleSub && existingByEmail.googleSub !== payload.googleSub) {
+        throw new AppException("VALIDATION_ERROR", "Email này đã liên kết với một tài khoản Google khác");
+      }
+
+      existingByEmail.googleSub = payload.googleSub;
+      existingByEmail.authProvider = "google";
+      existingByEmail.displayName = existingByEmail.displayName || displayName;
+      this.accountsByGoogleSub.set(payload.googleSub, existingByEmail.id);
+      return existingByEmail;
+    }
+
+    const account: AccountRecord = {
+      id: makeId("acc"),
+      email: normalized,
+      googleSub: payload.googleSub,
+      authProvider: "google",
+      passwordHash: null,
+      displayName,
+      role: inferRoleFromEmail(normalized),
+      profile: null,
+      banCount: 0,
+      createdAt: new Date().toISOString()
+    };
+    this.accounts.set(account.id, account);
+    this.accountsByEmail.set(normalized, account.id);
+    this.accountsByGoogleSub.set(payload.googleSub, account.id);
+    return account;
   }
 
   createSessionForAccount(account: AccountRecord): SessionRecord {
@@ -200,6 +251,17 @@ export class StoreService {
     };
     this.sessions.set(session.id, session);
     return session;
+  }
+
+  ensureSessionForAccount(account: AccountRecord, sessionId?: string): SessionRecord {
+    const existing = sessionId ? this.sessions.get(sessionId) : null;
+    if (existing && existing.accountId === account.id && existing.status !== "expired") {
+      this.refreshRestriction(existing);
+      existing.lastSeenAt = new Date().toISOString();
+      return existing;
+    }
+
+    return this.createSessionForAccount(account);
   }
 
   toAccountSummary(account: AccountRecord): AccountSummary {
@@ -927,6 +989,10 @@ function pairKey(sessionA: string, sessionB: string): string {
 
 function makeId(prefix: string): string {
   return `${prefix}_${randomUUID().replaceAll("-", "").slice(0, 16)}`;
+}
+
+function inferRoleFromEmail(email: string): "user" | "moderator" | "admin" {
+  return email.endsWith("@admin.local") ? "admin" : email.endsWith("@moderator.local") ? "moderator" : "user";
 }
 
 function randomAlias(): string {
