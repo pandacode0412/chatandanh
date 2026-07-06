@@ -10,7 +10,7 @@
 - Email/password and Google login.
 - Random 1-1 matching.
 - Avoid recent matches.
-- Text realtime chat.
+- Text realtime chat và gửi ảnh trong direct chat.
 - Topic rooms.
 - Report/block/rate limit.
 - Long-chat topic suggestion.
@@ -101,4 +101,3 @@ A feature is not ready for AI implementation unless docs answer:
 - What data is stored?
 - What privacy/safety rules apply?
 - How do we know it works?
-

@@ -70,7 +70,7 @@ Không promise:
 | MVP-005 | Đăng ký/đăng nhập bằng Google account |
 | MVP-006 | Random 1-1 matching |
 | MVP-007 | Random matching chỉ dựa trên giới tính muốn gặp, không có tìm theo chủ đề |
-| MVP-008 | Gửi/nhận text message realtime |
+| MVP-008 | Gửi/nhận text message và ảnh trong chat 1-1 realtime |
 | MVP-009 | Typing indicator |
 | MVP-010 | Online/presence |
 | MVP-011 | Kết thúc chat và đổi người |
@@ -106,7 +106,7 @@ Không promise:
 |---|---|
 | OOS-001 | Video call |
 | OOS-002 | Voice call |
-| OOS-003 | Gửi ảnh/file |
+| OOS-003 | Gửi file tùy ý ngoài ảnh chat đã cho phép |
 | OOS-004 | Mã hóa đầu cuối |
 | OOS-005 | AI matching phức tạp |
 | OOS-006 | Native mobile app |
@@ -175,6 +175,7 @@ Không promise:
 | CHAT-004 | User kết thúc conversation | Emit `conversation:ended` cho cả hai bên |
 | CHAT-005 | User bấm "Đổi người" | Kết thúc conversation hiện tại và gọi matching mới |
 | CHAT-006 | Không gửi tin rỗng hoặc quá dài | Text trim, max 2.000 ký tự cho MVP |
+| CHAT-007 | User có thể gửi ảnh trong chat | Chỉ nhận JPG, PNG, WEBP hoặc GIF; giới hạn kích thước; ảnh vẫn thuộc message để report/hide được |
 
 ### 7.6 Rooms
 
@@ -374,7 +375,7 @@ Chat đủ mốc
 | ChatShell | Layout chính gồm header, message list, composer |
 | MessageBubble | Phân biệt mine/theirs/system/moderation |
 | Composer | Textarea auto grow, send button, rate-limit disabled state |
-| AuthPanel | Form email/password gọn, có chuyển Đăng nhập/Đăng ký và trạng thái lỗi tiếng Việt |
+| AuthPanel | Form email/password gọn; đăng ký có nhập lại mật khẩu, có chuyển Đăng nhập/Đăng ký và trạng thái lỗi tiếng Việt |
 | ProfileSetupForm | Form 1 màn hình cho tên hiển thị, tuổi, tỉnh/thành, giới tính, desired genders |
 | GenderPicker | Segmented control: Nam, Nữ, Khác |
 | DesiredGenderPicker | Chọn giới tính muốn gặp: Bất kỳ, Nam, Nữ, Khác; không kèm filter khác |

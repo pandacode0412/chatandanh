@@ -109,7 +109,7 @@ Chưa cần microservices. Khi traffic tăng, scale ngang API bằng Redis adapt
 - Người đối diện chỉ thấy tên hiển thị/nickname, tuổi hoặc nhóm tuổi, tỉnh/thành, giới tính, avatar tạm, topic và trạng thái online.
 - Không hiển thị email, Gmail, số điện thoại, địa chỉ chính xác, IP, device id, account id cho người khác.
 - Matching phải ưu tiên người chưa từng gặp; chỉ fallback gặp lại khi pool ít hoặc chờ quá lâu.
-- Tin nhắn text là MVP. Cơ chế giữ hứng thú bằng milestone/gợi ý chủ đề là MVP; quick game/lưu kết nối ẩn danh là Phase 2 trừ khi PO bật sớm bằng feature spec; audio/video call để phase sau và phải có đồng ý hai chiều.
+- Tin nhắn text và ảnh trong direct chat là MVP hiện tại. Cơ chế giữ hứng thú bằng milestone/gợi ý chủ đề là MVP; quick game/lưu kết nối ẩn danh là Phase 2 trừ khi PO bật sớm bằng feature spec; audio/video call để phase sau và phải có đồng ý hai chiều.
 - Report/block/rate limit là bắt buộc trong MVP.
 - Admin chỉ xem nội dung khi có report hoặc cần xử lý an toàn.
 - Tin nhắn anonymous có retention mặc định 30 ngày, có thể giảm sau.

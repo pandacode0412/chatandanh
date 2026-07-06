@@ -1,6 +1,6 @@
 import { Body, Controller, Get, Inject, Post, Query, Req, Res, UseGuards } from "@nestjs/common";
 import { loginSchema, ok, registerSchema, linkSessionSchema } from "@chatandanh/shared";
-import { randomBytes } from "node:crypto";
+import { randomBytes, randomInt } from "node:crypto";
 import { Request, Response } from "express";
 import * as bcrypt from "bcryptjs";
 import { AccessTokenGuard } from "../../common/access-token.guard";
@@ -20,8 +20,7 @@ export class AuthController {
   async register(@Body() body: unknown, @Res({ passthrough: true }) response: Response) {
     const payload = registerSchema.parse(body);
     const passwordHash = await bcrypt.hash(payload.password, 10);
-    const profile = payload.profile ? { displayName: payload.displayName, ...payload.profile } : null;
-    const account = this.store.createAccount(payload.email, passwordHash, payload.displayName, profile);
+    const account = this.store.createAccount(payload.email, passwordHash);
     const session = this.store.createSessionForAccount(account);
     const auth: AuthContext = {
       sessionId: session.id,
@@ -249,13 +248,12 @@ async function fetchGoogleProfile(code: string, config: GoogleOAuthConfig) {
   return {
     googleSub: profile.sub,
     email: profile.email,
-    displayName: normalizeDisplayName(profile.name, profile.email)
+    displayName: normalizeDisplayName()
   };
 }
 
-function normalizeDisplayName(name: string | undefined, email: string): string {
-  const fallback = email.split("@")[0] || "Bạn mới";
-  return (name?.trim() || fallback).slice(0, 30);
+function normalizeDisplayName(): string {
+  return `AD-${String(randomInt(0, 10000)).padStart(4, "0")}`;
 }
 
 function redirectToWeb(response: Response, params: Record<string, string>) {

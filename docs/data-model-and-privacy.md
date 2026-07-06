@@ -46,7 +46,7 @@ Registered user account. Không gửi object này cho người đối diện.
 | id | uuid | Primary key |
 | email | varchar unique | Nullable nếu OAuth-only sau này |
 | password_hash | text | Không bao giờ trả về client |
-| display_name | varchar | Tên trong profile riêng |
+| display_name | varchar | Mã công khai tạm do server sinh khi đăng ký; có thể cập nhật theo profile riêng sau khi user hoàn tất hồ sơ |
 | google_sub | varchar unique nullable | ID Google/OIDC, không show public |
 | auth_provider | enum | email, google |
 | role | enum | user, moderator, admin |
@@ -181,7 +181,8 @@ Important:
 | conversation_id | uuid | FK |
 | sender_member_id | uuid | FK conversation_members |
 | client_message_id | varchar nullable | De-duplicate |
-| body | text | Text message MVP |
+| body | text | Text message, có thể rỗng nếu message chỉ có ảnh |
+| attachment | jsonb nullable | Attachment public của message, hiện chỉ hỗ trợ ảnh với `type`, `url`, `mimeType`, `name`, `size`, `alt` |
 | status | enum | sent, delivered, failed, hidden_by_moderation |
 | moderation_status | enum | clean, flagged, hidden |
 | created_at | timestamptz |  |
@@ -345,7 +346,7 @@ Rules:
 ```json
 {
   "participantId": "conversation_member_id",
-  "alias": "Mây 428",
+  "alias": "AD-4827",
   "avatarKey": "avatar_blue_03",
   "age": 22,
   "location": "TP. Hồ Chí Minh",
@@ -677,6 +678,7 @@ model Message {
   senderMemberId   String
   clientMessageId  String?
   body             String
+  attachment       Json?
   status           MessageStatus @default(sent)
   moderationStatus String @default("clean")
   createdAt        DateTime @default(now())

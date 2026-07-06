@@ -107,7 +107,7 @@ chatandanh/
 - Blocked users must not be matched again.
 - Report and block must be available inside every active chat.
 - Admin/moderator actions must be audit logged.
-- First MVP is text chat only. Audio/video call belongs to a later phase and must not be implemented in the first phase unless explicitly requested for that phase.
+- First MVP supports text chat plus direct-chat image messages. Audio/video call belongs to a later phase and must not be implemented in the first phase unless explicitly requested for that phase.
 
 ## 6. First Coding Prompt
 

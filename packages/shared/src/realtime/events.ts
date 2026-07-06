@@ -1,4 +1,4 @@
-import type { PublicParticipant, PublicMessage } from "../chat/chat.schema";
+import type { PublicParticipant, PublicMessage, SendMessagePayload } from "../chat/chat.schema";
 
 export interface SocketReadyPayload {
   sessionId: string;
@@ -49,7 +49,7 @@ export interface ServerToClientEvents {
 
 export interface ClientToServerEvents {
   "conversation:join": (payload: { conversationId: string }) => void;
-  "message:send": (payload: { conversationId: string; clientMessageId?: string; body: string }) => void;
+  "message:send": (payload: SendMessagePayload) => void;
   "typing:start": (payload: { conversationId: string }) => void;
   "typing:stop": (payload: { conversationId: string }) => void;
   "conversation:end": (payload: { conversationId: string; reason?: string }) => void;

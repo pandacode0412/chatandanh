@@ -272,6 +272,7 @@ model Message {
   senderMemberId   String
   clientMessageId  String?
   body             String
+  attachment       Json?
   status           MessageStatus @default(sent)
   moderationStatus String        @default("clean")
   createdAt        DateTime      @default(now())

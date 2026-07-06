@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import {
   Activity,
   AtSign,
@@ -9,6 +9,7 @@ import {
   Flag,
   Gavel,
   HeartHandshake,
+  ImagePlus,
   KeyRound,
   LoaderCircle,
   LogIn,
@@ -28,6 +29,8 @@ import { io, type Socket } from "socket.io-client";
 import {
   chatProfileSchema,
   genders,
+  imageMessageMimeTypes,
+  maxImageMessageBytes,
   vietnamLocations,
   type AdminOverview,
   type AdminReportSummary,
@@ -35,6 +38,7 @@ import {
   type AuthResponse,
   type ChatProfile,
   type ModerationAction,
+  type PublicMessageAttachment,
   type PublicParticipant,
   type ReportReason
 } from "@chatandanh/shared";
@@ -65,6 +69,9 @@ const genderLabels: Record<ChatProfile["gender"], string> = {
   female: "Nữ",
   other: "Khác"
 };
+
+const imageMessageMimeTypeSet = new Set<string>(imageMessageMimeTypes);
+const imageMessageAccept = imageMessageMimeTypes.join(",");
 
 type AuthMode = "login" | "register";
 
@@ -108,11 +115,13 @@ export function App() {
   const [locInput, setLocInput] = useState("");
   const [showLocSuggestions, setShowLocSuggestions] = useState(false);
   const [composer, setComposer] = useState("");
+  const [composerError, setComposerError] = useState("");
+  const [imageSending, setImageSending] = useState(false);
   const [reportOpen, setReportOpen] = useState(false);
   const [authMode, setAuthMode] = useState<AuthMode>("login");
   const [authEmail, setAuthEmail] = useState("");
   const [authPassword, setAuthPassword] = useState("");
-  const [authDisplayName, setAuthDisplayName] = useState("Mây");
+  const [authConfirmPassword, setAuthConfirmPassword] = useState("");
   const [authBusy, setAuthBusy] = useState(false);
   const [authError, setAuthError] = useState("");
   const [authOpen, setAuthOpen] = useState(false);
@@ -129,6 +138,7 @@ export function App() {
   const [editLocation, setEditLocation] = useState("Khu vực khác");
   const [activeSettingsTab, setActiveSettingsTab] = useState<"profile" | "filter">("profile");
   const [infoOpen, setInfoOpen] = useState(false);
+  const [termsOpen, setTermsOpen] = useState(false);
   const [onlineCount, setOnlineCount] = useState(1);
 
   useEffect(() => {
@@ -226,27 +236,6 @@ export function App() {
       .finally(() => setAuthBusy(false));
   }, []);
 
-  async function handleStartGuest() {
-    setStatus("Đang tạo phiên ẩn danh...");
-    const defaultProfile: ChatProfile = {
-      displayName: "Người lạ",
-      age: 20,
-      location: "Khu vực khác",
-      gender: "other",
-      desiredGenders: ["male", "female", "other"]
-    };
-    const session = await createAnonymousSession(defaultProfile);
-    setSession({
-      accessToken: session.accessToken,
-      displayAlias: session.displayAlias,
-      avatarKey: session.avatarKey,
-      role: "user",
-      profile: defaultProfile
-    });
-    setProfile(defaultProfile);
-    setStatus("Đã kết nối ẩn danh.");
-  }
-
   async function handleProfileSubmit(nextProfile: ChatProfile) {
     const parsed = chatProfileSchema.parse(nextProfile);
     if (!accessToken) {
@@ -278,7 +267,7 @@ export function App() {
   async function handleSaveSettings() {
     try {
       const updatedProfile: ChatProfile = {
-        displayName: editName.trim() || "Người lạ",
+        displayName: editName.trim(),
         age: editAge,
         gender: editGender,
         location: editLocation,
@@ -320,6 +309,7 @@ export function App() {
     }
     setAuthOpen(false);
     setAuthPassword("");
+    setAuthConfirmPassword("");
   }
 
   async function handleAuthSubmit(event: React.FormEvent) {
@@ -329,13 +319,13 @@ export function App() {
     try {
       const email = authEmail.trim();
       const password = authPassword;
+      if (authMode === "register" && password !== authConfirmPassword) {
+        setAuthError("Mật khẩu nhập lại chưa khớp.");
+        return;
+      }
       const response =
         authMode === "register"
-          ? await registerWithEmail({
-              email,
-              password,
-              displayName: authDisplayName.trim() || email.split("@")[0] || "Bạn mới"
-            })
+          ? await registerWithEmail({ email, password })
           : await loginWithEmail({ email, password });
 
       await applyAuthResponse(response);
@@ -433,15 +423,55 @@ export function App() {
   }
 
   function sendMessage() {
-    if (!socket || !conversationId || !composer.trim()) {
+    const body = composer.trim();
+    if (!socket || !conversationId || !body) {
       return;
     }
     socket.emit("message:send", {
       conversationId,
       clientMessageId: createClientId(),
-      body: composer
+      body
     });
     setComposer("");
+    setComposerError("");
+  }
+
+  async function sendImageMessage(file: File) {
+    if (!socket || !conversationId) {
+      return;
+    }
+    if (!imageMessageMimeTypeSet.has(file.type)) {
+      setComposerError("Chỉ hỗ trợ ảnh JPG, PNG, WEBP hoặc GIF.");
+      return;
+    }
+    if (file.size > maxImageMessageBytes) {
+      setComposerError(`Ảnh tối đa ${formatBytes(maxImageMessageBytes)}.`);
+      return;
+    }
+
+    setImageSending(true);
+    setComposerError("");
+    try {
+      const url = await readFileAsDataUrl(file);
+      const attachment: PublicMessageAttachment = {
+        type: "image",
+        url,
+        mimeType: file.type as PublicMessageAttachment["mimeType"],
+        name: file.name || undefined,
+        size: file.size,
+        alt: file.name ? `Ảnh ${file.name}` : "Ảnh đã gửi"
+      };
+      socket.emit("message:send", {
+        conversationId,
+        clientMessageId: createClientId(),
+        body: "",
+        attachment
+      });
+    } catch {
+      setComposerError("Không đọc được ảnh này, vui lòng chọn ảnh khác.");
+    } finally {
+      setImageSending(false);
+    }
   }
 
   function endConversation(next = false) {
@@ -534,7 +564,7 @@ export function App() {
       <div className="landing-container">
         <div className="landing-center-box">
           <div className="landing-logo">
-            <span className="logo-icon">🕵️</span>
+            <span className="logo-icon"><ShieldCheck size={44} /></span>
             <h1 className="logo-text">ẨN DANH</h1>
           </div>
           <p className="landing-subtitle">Trò chuyện & kết bạn với người lạ</p>
@@ -544,10 +574,12 @@ export function App() {
           </p>
 
           <div className="landing-actions">
-            <button className="btn-landing-start" onClick={() => { setAuthMode("register"); setAuthOpen(true); }}>
+            <button className="btn-landing-register" onClick={() => { setAuthMode("register"); setAuthOpen(true); }}>
+              <UserPlus size={18} />
               Đăng ký tài khoản
             </button>
             <button className="btn-landing-login" onClick={() => { setAuthMode("login"); setAuthOpen(true); }}>
+              <Mail size={18} />
               Đăng nhập Email
             </button>
           </div>
@@ -557,9 +589,9 @@ export function App() {
               Tìm hiểu thêm
             </button>
             <span className="footer-divider">•</span>
-            <a href="https://cvnl.app/tos/" target="_blank" rel="noreferrer" className="btn-footer-link">
+            <button className="btn-footer-link" onClick={() => setTermsOpen(true)}>
               Điều khoản dịch vụ
-            </a>
+            </button>
           </footer>
         </div>
 
@@ -573,13 +605,13 @@ export function App() {
                 authMode={authMode}
                 authEmail={authEmail}
                 authPassword={authPassword}
-                authDisplayName={authDisplayName}
+                authConfirmPassword={authConfirmPassword}
                 authBusy={authBusy}
                 authError={authError}
                 onAuthModeChange={setAuthMode}
                 onEmailChange={setAuthEmail}
                 onPasswordChange={setAuthPassword}
-                onDisplayNameChange={setAuthDisplayName}
+                onConfirmPasswordChange={setAuthConfirmPassword}
                 onAuthSubmit={(event) => void handleAuthSubmit(event)}
                 onGoogleLogin={handleGoogleLogin}
                 onLogout={() => void handleLogout()}
@@ -604,6 +636,26 @@ export function App() {
                 <p>Mọi dữ liệu trò chuyện đều tự động hủy ngay khi một trong hai người bấm kết thúc cuộc chat.</p>
               </div>
               <button className="primary-button full-width" onClick={() => setInfoOpen(false)}>
+                Tôi đã hiểu
+              </button>
+            </div>
+          </div>
+        )}
+
+        {termsOpen && (
+          <div className="modal-backdrop">
+            <div className="dialog cvnl-info-dialog">
+              <h2>Điều khoản dịch vụ</h2>
+              <div className="info-dialog-content">
+                <ul>
+                  <li>Không dùng Chat Ẩn Danh để spam, lừa đảo, quấy rối hoặc đe dọa người khác.</li>
+                  <li>Không chia sẻ thông tin cá nhân, địa chỉ chính xác hoặc nội dung bất hợp pháp.</li>
+                  <li>Cuộc trò chuyện có thể được xử lý khi có báo cáo để bảo vệ an toàn cộng đồng.</li>
+                  <li>Tài khoản hoặc phiên vi phạm có thể bị chặn, hạn chế hoặc kết thúc trò chuyện.</li>
+                </ul>
+                <p>Khi tiếp tục sử dụng, bạn đồng ý trò chuyện văn minh và tôn trọng quyền riêng tư của người khác.</p>
+              </div>
+              <button className="primary-button full-width" onClick={() => setTermsOpen(false)}>
                 Tôi đã hiểu
               </button>
             </div>
@@ -675,7 +727,7 @@ export function App() {
         </header>
 
         <div className="main-grid">
-          <section className={`primary-panel ${currentStep === "profile" || currentStep === "match" ? "centered-panel" : ""}`}>
+          <section className={`primary-panel ${currentStep === "profile" || currentStep === "match" ? "centered-panel" : ""} ${currentStep === "chat" ? "chat-panel-host" : ""}`}>
             {currentStep === "profile" && (
               <ProfileSetup
                 onSubmit={handleProfileSubmit}
@@ -733,9 +785,17 @@ export function App() {
                 participant={participant}
                 messages={messages}
                 composer={composer}
+                composerError={composerError}
+                imageSending={imageSending}
                 milestone={milestone}
-                onComposerChange={setComposer}
+                onComposerChange={(value) => {
+                  setComposer(value);
+                  if (composerError) {
+                    setComposerError("");
+                  }
+                }}
                 onSend={sendMessage}
+                onImageSend={sendImageMessage}
                 onEnd={() => endConversation(false)}
                 onNext={() => endConversation(true)}
                 onReport={() => setReportOpen(true)}
@@ -757,13 +817,13 @@ export function App() {
               authMode={authMode}
               authEmail={authEmail}
               authPassword={authPassword}
-              authDisplayName={authDisplayName}
+              authConfirmPassword={authConfirmPassword}
               authBusy={authBusy}
               authError={authError}
               onAuthModeChange={setAuthMode}
               onEmailChange={setAuthEmail}
               onPasswordChange={setAuthPassword}
-              onDisplayNameChange={setAuthDisplayName}
+              onConfirmPasswordChange={setAuthConfirmPassword}
               onAuthSubmit={(event) => void handleAuthSubmit(event)}
               onGoogleLogin={handleGoogleLogin}
               onLogout={() => void handleLogout()}
@@ -1062,39 +1122,6 @@ export function App() {
   );
 }
 
-function Lobby({ onStart }: { onStart: () => void }) {
-  return (
-    <div className="setup-dialog">
-      <section className="setup-section">
-        <h2>Thông tin của bạn:</h2>
-        <div className="preview-stack">
-          <div className="fake-input">Tên mặc định: #ẨNDANH</div>
-          <div className="two-cols">
-            <div className="fake-input"><small>Tuổi (*)</small><span>20</span></div>
-            <div className="fake-input"><small>Giới tính (*)</small><span>Nam</span></div>
-          </div>
-          <div className="fake-input"><small>Tỉnh thành (*)</small><span>Thành phố Hồ Chí Minh</span></div>
-        </div>
-      </section>
-
-      <section className="setup-section">
-        <h2>Bạn muốn gặp:</h2>
-        <div className="preview-stack muted">
-          <div className="fake-input"><small>Giới tính</small><span>Bất kỳ</span></div>
-        </div>
-      </section>
-
-      <footer className="setup-footer">
-        <p>*Các thông tin trên giúp hệ thống tìm người phù hợp với bạn</p>
-        <button className="primary-button" onClick={onStart}>
-          <LogIn size={18} />
-          Bắt đầu ẩn danh
-        </button>
-      </footer>
-    </div>
-  );
-}
-
 function ProfileSetup({
   onSubmit,
   enableAgeFilter,
@@ -1112,7 +1139,7 @@ function ProfileSetup({
   onAgeMinChange: (value: number) => void;
   onAgeMaxChange: (value: number) => void;
 }) {
-  const [displayName, setDisplayName] = useState("Mây");
+  const [displayName, setDisplayName] = useState("");
   const [age, setAge] = useState(22);
   const [location, setLocation] = useState("TP. Hồ Chí Minh");
   const [gender, setGender] = useState<ChatProfile["gender"]>("female");
@@ -1132,10 +1159,18 @@ function ProfileSetup({
   return (
     <form className="setup-dialog" onSubmit={submit}>
       <section className="setup-section">
-        <h2>Thông tin của bạn:</h2>
+        <h2>Thông tin của bạn</h2>
         <label>
           Tên hiển thị
-          <input value={displayName} onChange={(event) => setDisplayName(event.target.value)} maxLength={30} />
+          <div className="input-with-icon profile-code-input">
+            <UserRound size={16} />
+            <input
+              value={displayName}
+              onChange={(event) => setDisplayName(event.target.value)}
+              maxLength={30}
+              placeholder="Nhập tên bạn muốn hiển thị"
+            />
+          </div>
         </label>
         <div className="two-cols">
           <label>
@@ -1153,7 +1188,7 @@ function ProfileSetup({
       </section>
 
       <section className="setup-section">
-        <h2>Bạn muốn gặp:</h2>
+        <h2>Bạn muốn gặp</h2>
         <fieldset className="setup-age-preference">
           <legend>Tuổi</legend>
           <div className="age-preference-header">
@@ -1450,13 +1485,13 @@ function AuthPanel({
   authMode,
   authEmail,
   authPassword,
-  authDisplayName,
+  authConfirmPassword,
   authBusy,
   authError,
   onAuthModeChange,
   onEmailChange,
   onPasswordChange,
-  onDisplayNameChange,
+  onConfirmPasswordChange,
   onAuthSubmit,
   onGoogleLogin,
   onLogout
@@ -1467,13 +1502,13 @@ function AuthPanel({
   authMode: AuthMode;
   authEmail: string;
   authPassword: string;
-  authDisplayName: string;
+  authConfirmPassword: string;
   authBusy: boolean;
   authError: string;
   onAuthModeChange: (mode: AuthMode) => void;
   onEmailChange: (value: string) => void;
   onPasswordChange: (value: string) => void;
-  onDisplayNameChange: (value: string) => void;
+  onConfirmPasswordChange: (value: string) => void;
   onAuthSubmit: (event: React.FormEvent) => void;
   onGoogleLogin: () => void;
   onLogout: () => void;
@@ -1525,15 +1560,6 @@ function AuthPanel({
       </button>
       <div className="auth-divider">hoặc dùng email</div>
       <form className="auth-form" onSubmit={onAuthSubmit}>
-        {authMode === "register" && (
-          <label>
-            Tên hiển thị
-            <div className="input-with-icon">
-              <UserPlus size={16} />
-              <input value={authDisplayName} onChange={(event) => onDisplayNameChange(event.target.value)} maxLength={30} />
-            </div>
-          </label>
-        )}
         <label>
           Email
           <div className="input-with-icon">
@@ -1554,6 +1580,21 @@ function AuthPanel({
             />
           </div>
         </label>
+        {authMode === "register" && (
+          <label>
+            Nhập lại mật khẩu
+            <div className="input-with-icon">
+              <KeyRound size={16} />
+              <input
+                type="password"
+                value={authConfirmPassword}
+                onChange={(event) => onConfirmPasswordChange(event.target.value)}
+                minLength={8}
+                autoComplete="new-password"
+              />
+            </div>
+          </label>
+        )}
         {authError && <p className="form-error">{authError}</p>}
         <button className="primary-button full-width" type="submit" disabled={authBusy}>
           {authBusy ? <LoaderCircle className="spin" size={18} /> : authMode === "register" ? <UserPlus size={18} /> : <LogIn size={18} />}
@@ -1568,9 +1609,12 @@ function ChatPanel({
   participant,
   messages,
   composer,
+  composerError,
+  imageSending,
   milestone,
   onComposerChange,
   onSend,
+  onImageSend,
   onEnd,
   onNext,
   onReport,
@@ -1580,57 +1624,162 @@ function ChatPanel({
   participant: PublicParticipant;
   messages: ReturnType<typeof useSessionStore.getState>["messages"];
   composer: string;
+  composerError: string;
+  imageSending: boolean;
   milestone: ReturnType<typeof useSessionStore.getState>["milestone"];
   onComposerChange: (value: string) => void;
   onSend: () => void;
+  onImageSend: (file: File) => Promise<void>;
   onEnd: () => void;
   onNext: () => void;
   onReport: () => void;
   onBlock: () => void;
   onDismissMilestone: () => void;
 }) {
+  const imageInputRef = useRef<HTMLInputElement | null>(null);
+  const participantDetails = [
+    ["Mã hiển thị", participant.alias],
+    ["Tuổi", participant.age ? `${participant.age}` : "Chưa rõ"],
+    ["Khu vực", participant.location ?? "Chưa rõ"],
+    ["Giới tính", participant.gender ? genderLabels[participant.gender] : "Chưa rõ"]
+  ];
+
+  function handleComposerKeyDown(event: React.KeyboardEvent<HTMLTextAreaElement>) {
+    if (event.key !== "Enter" || event.shiftKey || event.nativeEvent.isComposing) {
+      return;
+    }
+
+    event.preventDefault();
+    onSend();
+  }
+
+  function handleImageInputChange(event: React.ChangeEvent<HTMLInputElement>) {
+    const file = event.currentTarget.files?.[0];
+    event.currentTarget.value = "";
+    if (file) {
+      void onImageSend(file);
+    }
+  }
+
   return (
     <div className="chat-shell">
-      <header className="chat-header">
-        <div>
-          <h2>{participant.alias}</h2>
-          <p>{[participant.age, participant.location, participant.gender ? genderLabels[participant.gender] : null].filter(Boolean).join(" • ")}</p>
-        </div>
-        <div className="chat-actions">
-          <button className="icon-button" title="Báo cáo" onClick={onReport}><ShieldAlert size={18} /></button>
-          <button className="icon-button" title="Chặn" onClick={onBlock}><Ban size={18} /></button>
-          <button className="icon-button" title="Kết thúc" onClick={onEnd}><DoorOpen size={18} /></button>
-        </div>
-      </header>
-
-      <div className="message-list">
-        {messages.length === 0 && <p className="empty-chat">Hãy gửi lời chào đầu tiên.</p>}
-        {messages.map((message) => (
-          <div key={message.id} className={message.sender.participantId === participant.participantId ? "bubble theirs" : "bubble mine"}>
-            <span>{message.body}</span>
-            <small>{new Date(message.createdAt).toLocaleTimeString("vi-VN", { hour: "2-digit", minute: "2-digit" })}</small>
+      <aside className="chat-side chat-participant-panel" aria-label="Thông tin người đang nhắn">
+        <div className="chat-profile-card">
+          <div className="chat-profile-avatar">
+            <UserRound size={28} />
           </div>
-        ))}
-      </div>
-
-      {milestone && (
-        <div className="engagement-tray">
-          <strong>{milestone.title}</strong>
-          {milestone.suggestions.map((suggestion) => (
-            <button key={suggestion} onClick={() => onComposerChange(suggestion)}>{suggestion}</button>
-          ))}
-          <button className="ghost-button" onClick={onDismissMilestone}>Bỏ qua</button>
+          <div className="chat-profile-name">
+            <span>Đang nhắn với</span>
+            <h2>{participant.alias}</h2>
+          </div>
         </div>
-      )}
 
-      <footer className="composer">
-        <textarea value={composer} onChange={(event) => onComposerChange(event.target.value)} maxLength={2000} placeholder="Nhập tin nhắn..." />
-        <button className="send-button" title="Gửi" onClick={onSend}><Send size={20} /></button>
-      </footer>
-      <button className="secondary-button next-button" onClick={onNext}>
-        <Shuffle size={16} />
-        Đổi người
-      </button>
+        <dl className="participant-details">
+          {participantDetails.map(([label, value]) => (
+            <div key={label}>
+              <dt>{label}</dt>
+              <dd>{value}</dd>
+            </div>
+          ))}
+        </dl>
+
+        <div className="participant-status">
+          <span className="online-dot" aria-hidden="true" />
+          <span>{participant.online ? "Đang online" : "Đang trò chuyện"}</span>
+        </div>
+      </aside>
+
+      <section className="chat-conversation" aria-label="Khung chat">
+        <header className="chat-header">
+          <div className="chat-title">
+            <span className="chat-title-icon"><MessageCircle size={18} /></span>
+            <div>
+              <h2>Tin nhắn</h2>
+              <p>{messages.length.toLocaleString("vi-VN")} tin trong phòng</p>
+            </div>
+          </div>
+        </header>
+
+        <div className="message-list">
+          {messages.length === 0 && <p className="empty-chat">Hãy gửi lời chào đầu tiên.</p>}
+          {messages.map((message) => (
+            <div key={message.id} className={message.sender.participantId === participant.participantId ? "bubble theirs" : "bubble mine"}>
+              {message.attachment?.type === "image" && (
+                <a className="message-image-link" href={message.attachment.url} target="_blank" rel="noreferrer">
+                  <img src={message.attachment.url} alt={message.attachment.alt ?? message.attachment.name ?? "Ảnh trong đoạn chat"} />
+                </a>
+              )}
+              {message.body && <span>{message.body}</span>}
+              <small>{new Date(message.createdAt).toLocaleTimeString("vi-VN", { hour: "2-digit", minute: "2-digit" })}</small>
+            </div>
+          ))}
+        </div>
+
+        {milestone && (
+          <div className="engagement-tray">
+            <strong>{milestone.title}</strong>
+            {milestone.suggestions.map((suggestion) => (
+              <button key={suggestion} onClick={() => onComposerChange(suggestion)}>{suggestion}</button>
+            ))}
+            <button className="ghost-button" onClick={onDismissMilestone}>Bỏ qua</button>
+          </div>
+        )}
+
+        <footer className="composer">
+          <button
+            type="button"
+            className="composer-icon-button"
+            title="Gửi ảnh"
+            onClick={() => imageInputRef.current?.click()}
+            disabled={imageSending}
+          >
+            {imageSending ? <LoaderCircle className="spin" size={20} /> : <ImagePlus size={20} />}
+          </button>
+          <input
+            ref={imageInputRef}
+            className="composer-file-input"
+            type="file"
+            accept={imageMessageAccept}
+            onChange={handleImageInputChange}
+            disabled={imageSending}
+          />
+          <textarea
+            value={composer}
+            onChange={(event) => onComposerChange(event.target.value)}
+            onKeyDown={handleComposerKeyDown}
+            maxLength={2000}
+            placeholder="Nhập tin nhắn..."
+          />
+          <button className="send-button" title="Gửi" onClick={onSend}><Send size={20} /></button>
+        </footer>
+        {composerError && <p className="composer-error">{composerError}</p>}
+      </section>
+
+      <aside className="chat-side chat-control-panel" aria-label="Thao tác phòng chat">
+        <section className="chat-control-group">
+          <h3>Phòng chat</h3>
+          <button type="button" className="secondary-button chat-control-button" onClick={onNext}>
+            <Shuffle size={16} />
+            Đổi người
+          </button>
+          <button type="button" className="ghost-button chat-control-button" onClick={onEnd}>
+            <DoorOpen size={16} />
+            Rời phòng
+          </button>
+        </section>
+
+        <section className="chat-control-group">
+          <h3>An toàn</h3>
+          <button type="button" className="secondary-button chat-control-button" onClick={onReport}>
+            <Flag size={16} />
+            Báo cáo
+          </button>
+          <button type="button" className="secondary-button chat-control-button danger" onClick={onBlock}>
+            <Ban size={16} />
+            Chặn người này
+          </button>
+        </section>
+      </aside>
     </div>
   );
 }
@@ -1706,6 +1855,28 @@ function formatDesiredGenders(value: ChatProfile["desiredGenders"]) {
     return "Bất kỳ";
   }
   return value.map((item) => genderLabels[item]).join(", ");
+}
+
+function readFileAsDataUrl(file: File): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.addEventListener("load", () => {
+      if (typeof reader.result === "string") {
+        resolve(reader.result);
+        return;
+      }
+      reject(new Error("Invalid file result"));
+    });
+    reader.addEventListener("error", () => reject(reader.error ?? new Error("File read failed")));
+    reader.readAsDataURL(file);
+  });
+}
+
+function formatBytes(bytes: number): string {
+  if (bytes >= 1_000_000) {
+    return `${(bytes / 1_000_000).toLocaleString("vi-VN", { maximumFractionDigits: 1 })} MB`;
+  }
+  return `${Math.ceil(bytes / 1000).toLocaleString("vi-VN")} KB`;
 }
 
 function createClientId() {

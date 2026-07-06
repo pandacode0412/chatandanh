@@ -11,7 +11,7 @@ services:
     environment:
       NODE_ENV: development
       PORT: 3000
-      WEB_ORIGIN: http://localhost:5173
+      WEB_ORIGIN: ${WEB_ORIGIN:-http://localhost:5173}
       DATABASE_URL: postgresql://${POSTGRES_USER:-chatandanh}:${POSTGRES_PASSWORD:-chatandanh}@postgres:5432/${POSTGRES_DB:-chatandanh}
       REDIS_URL: redis://redis:6379
       JWT_ACCESS_SECRET: ${JWT_ACCESS_SECRET:-dev-change-me}
@@ -20,6 +20,9 @@ services:
       REFRESH_TOKEN_EXPIRES_DAYS: ${REFRESH_TOKEN_EXPIRES_DAYS:-30}
       COOKIE_DOMAIN: ${COOKIE_DOMAIN:-localhost}
       COOKIE_SECURE: ${COOKIE_SECURE:-false}
+      GOOGLE_CLIENT_ID: ${GOOGLE_CLIENT_ID:-}
+      GOOGLE_CLIENT_SECRET: ${GOOGLE_CLIENT_SECRET:-}
+      GOOGLE_CALLBACK_URL: ${GOOGLE_CALLBACK_URL:-http://localhost:3000/api/auth/google/callback}
       SAFETY_HASH_SECRET: ${SAFETY_HASH_SECRET:-dev-change-me}
       FEATURE_TOPIC_SUGGESTION: ${FEATURE_TOPIC_SUGGESTION:-true}
       FEATURE_QUICK_GAME: ${FEATURE_QUICK_GAME:-false}
@@ -45,7 +48,7 @@ services:
     restart: unless-stopped
     environment:
       NODE_ENV: development
-      VITE_API_URL: http://localhost:3000
+      VITE_API_URL: ${API_ORIGIN:-http://localhost:3000}
     ports:
       - "${WEB_PORT:-5173}:5173"
     depends_on:

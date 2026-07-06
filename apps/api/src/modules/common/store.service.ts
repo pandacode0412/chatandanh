@@ -13,13 +13,14 @@ import {
   type ModerationActionSummary,
   type PublicConversation,
   type PublicMessage,
+  type PublicMessageAttachment,
   type PublicParticipant,
   type ReportReason,
   type ReportSummary,
   type StartMatchingResponse,
   reportReasons
 } from "@chatandanh/shared";
-import { randomUUID, createHmac } from "node:crypto";
+import { randomUUID, createHmac, randomInt } from "node:crypto";
 import { AppException } from "../../common/app-exception";
 
 interface SessionRecord {
@@ -147,25 +148,26 @@ export class StoreService {
     this.sessions.set(id, session);
     return {
       sessionId: session.id,
-      displayAlias: `${session.baseAlias} ${session.id.slice(-3)}`,
+      displayAlias: publicAliasForSession(session),
       avatarKey: session.avatarKey,
       profileComplete: session.profileComplete,
       expiresAt: session.expiresAt
     };
   }
 
-  createAccount(email: string, passwordHash: string, displayName: string, profile: ChatProfile | null): AccountRecord {
+  createAccount(email: string, passwordHash: string, displayName?: string, profile: ChatProfile | null = null): AccountRecord {
     const normalized = email.toLowerCase();
     if (this.accountsByEmail.has(normalized)) {
       throw new AppException("VALIDATION_ERROR", "Email đã được đăng ký");
     }
+    const accountDisplayName = displayName?.trim() || profile?.displayName?.trim() || randomAlias();
 
     const account: AccountRecord = {
       id: makeId("acc"),
       email: normalized,
       authProvider: "email",
       passwordHash,
-      displayName,
+      displayName: accountDisplayName,
       role: inferRoleFromEmail(normalized),
       profile,
       banCount: 0,
@@ -197,7 +199,7 @@ export class StoreService {
     }
 
     const normalized = payload.email.toLowerCase();
-    const displayName = payload.displayName?.trim() || normalized.split("@")[0] || "Bạn mới";
+    const displayName = payload.displayName?.trim() || randomAlias();
     const existingByEmail = this.findAccountByEmail(normalized);
     if (existingByEmail) {
       if (existingByEmail.googleSub && existingByEmail.googleSub !== payload.googleSub) {
@@ -414,14 +416,20 @@ export class StoreService {
     return conversation.messages.slice(-Math.min(limit, 50));
   }
 
-  sendMessage(sessionId: string, conversationId: string, body: string, clientMessageId?: string): PublicMessage {
+  sendMessage(
+    sessionId: string,
+    conversationId: string,
+    body: string,
+    clientMessageId?: string,
+    attachment?: PublicMessageAttachment
+  ): PublicMessage {
     this.assertCanInteract(this.getSession(sessionId), "Bạn đang bị hạn chế nên chưa thể gửi tin nhắn.");
     const conversation = this.getConversationForSession(conversationId, sessionId);
     if (conversation.status !== "active") {
       throw new AppException("CONVERSATION_NOT_FOUND", "Cuộc trò chuyện đã kết thúc", 404);
     }
     const trimmed = body.trim();
-    if (!trimmed) {
+    if (!trimmed && !attachment) {
       throw new AppException("VALIDATION_ERROR", "Không thể gửi tin nhắn trống");
     }
     if (trimmed.length > 2000) {
@@ -448,6 +456,7 @@ export class StoreService {
       conversationId,
       sender: toPublicParticipant(senderMember, this.getSession(sessionId)),
       body: trimmed,
+      attachment,
       status: "sent",
       createdAt: new Date().toISOString()
     };
@@ -740,6 +749,7 @@ export class StoreService {
     if (message) {
       message.status = "hidden_by_moderation";
       message.body = "Tin nhắn đã bị ẩn bởi quản trị viên.";
+      message.attachment = undefined;
     }
   }
 
@@ -772,7 +782,7 @@ export class StoreService {
     return {
       sessionId: session.id,
       accountId: session.accountId,
-      alias: `${session.baseAlias} ${session.id.slice(-3)}`,
+      alias: publicAliasForSession(session, session.profile),
       emailMasked: account?.email ? maskEmail(account.email) : undefined,
       mode: session.mode,
       role: session.role,
@@ -815,7 +825,7 @@ export class StoreService {
 
   private sessionAlias(sessionId: string): string {
     const session = this.sessions.get(sessionId);
-    return session ? `${session.baseAlias} ${session.id.slice(-3)}` : "User không xác định";
+    return session ? publicAliasForSession(session, session.profile) : "User không xác định";
   }
 
   private refreshRestriction(session: SessionRecord): void {
@@ -878,7 +888,7 @@ export class StoreService {
     return {
       id: makeId("part"),
       sessionId,
-      publicAlias: `${profile?.displayName ?? session.baseAlias} ${session.id.slice(-3)}`,
+      publicAlias: publicAliasForSession(session, profile),
       publicAvatarKey: randomAvatarKey(),
       publicAge: profile?.age,
       publicLocation: profile?.location,
@@ -996,8 +1006,11 @@ function inferRoleFromEmail(email: string): "user" | "moderator" | "admin" {
 }
 
 function randomAlias(): string {
-  const names = ["Mây", "Gió", "Sao", "Nắng", "Mưa", "Cỏ", "Biển", "Trăng"];
-  return names[Math.floor(Math.random() * names.length)];
+  return `AD-${String(randomInt(0, 10000)).padStart(4, "0")}`;
+}
+
+function publicAliasForSession(session: SessionRecord, profile?: ChatProfile | null): string {
+  return profile?.displayName?.trim() || session.baseAlias;
 }
 
 function randomAvatarKey(): string {

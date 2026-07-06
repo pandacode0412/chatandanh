@@ -99,6 +99,14 @@ export interface PublicMessage {
   conversationId: string;
   sender: PublicParticipant;
   body: string;
+  attachment?: {
+    type: "image";
+    url: string;
+    mimeType: "image/jpeg" | "image/png" | "image/webp" | "image/gif";
+    name?: string;
+    size: number;
+    alt?: string;
+  };
   status: MessageStatus;
   createdAt: string;
 }
@@ -123,9 +131,9 @@ Request:
 
 ```json
 {
-  "preferredAlias": "Mây",
+  "preferredAlias": "AD-4827",
   "profile": {
-    "displayName": "Mây",
+    "displayName": "AD-4827",
     "age": 22,
     "location": "TP. Hồ Chí Minh",
     "gender": "female",
@@ -142,7 +150,7 @@ Response:
   "data": {
     "sessionId": "ses_123",
     "accessToken": "jwt",
-    "displayAlias": "Mây 428",
+    "displayAlias": "AD-4827",
     "avatarKey": "avatar_blue_03",
     "profileComplete": true,
     "expiresAt": "2026-06-26T16:00:00.000Z"
@@ -154,7 +162,7 @@ Response:
 
 Acceptance:
 
-- Nếu user không nhập alias, server random alias.
+- Nếu user không nhập alias, server random alias dạng mã công khai, ví dụ `AD-4827`.
 - Nếu `ageConfirmed` false và sản phẩm cấu hình 18+, trả `FORBIDDEN`.
 - Không yêu cầu email/password.
 - Nếu thiếu profile, server vẫn có thể tạo session nhưng `profileComplete = false`; matching sẽ trả `PROFILE_REQUIRED`.
@@ -166,14 +174,7 @@ Request:
 ```json
 {
   "email": "user@example.com",
-  "password": "strong-password",
-  "displayName": "Phuc",
-  "profile": {
-    "age": 22,
-    "location": "Hà Nội",
-    "gender": "male",
-    "desiredGenders": ["female"]
-  }
+  "password": "strong-password"
 }
 ```
 
@@ -185,9 +186,9 @@ Response:
     "account": {
       "id": "acc_123",
       "email": "user@example.com",
-      "displayName": "Phuc",
+      "displayName": "AD-4827",
       "mode": "registered",
-      "profileComplete": true
+      "profileComplete": false
     },
     "accessToken": "jwt"
   },
@@ -198,6 +199,9 @@ Response:
 
 Rules:
 
+- Đăng ký email chỉ yêu cầu email/password; UI có thể yêu cầu nhập lại mật khẩu để xác nhận trước khi gọi API.
+- Server tự sinh mã công khai tạm dạng `AD-4827` cho account mới.
+- User vẫn phải hoàn tất profile riêng trước khi matching.
 - Hash password bằng Argon2id hoặc bcrypt.
 - Set refresh token bằng httpOnly cookie.
 - Không trả `passwordHash`.
@@ -260,7 +264,7 @@ Response:
   "data": {
     "profileComplete": true,
     "profile": {
-      "displayName": "Mây",
+      "displayName": "AD-4827",
       "age": 22,
       "location": "TP. Hồ Chí Minh",
       "gender": "female",
@@ -280,7 +284,7 @@ Request:
 
 ```json
 {
-  "displayName": "Mây",
+  "displayName": "AD-4827",
   "age": 22,
   "location": "TP. Hồ Chí Minh",
   "gender": "female",
@@ -295,7 +299,7 @@ Response:
   "data": {
     "profileComplete": true,
     "profile": {
-      "displayName": "Mây",
+      "displayName": "AD-4827",
       "age": 22,
       "location": "TP. Hồ Chí Minh",
       "gender": "female",
@@ -680,7 +684,7 @@ Server -> Client.
   "conversationId": "conv_123",
   "participant": {
     "participantId": "part_other",
-    "alias": "Gió 219",
+    "alias": "AD-9351",
     "avatarKey": "avatar_green_02",
     "mode": "guest",
     "age": 24,
@@ -720,14 +724,25 @@ Client -> Server.
 {
   "conversationId": "conv_123",
   "clientMessageId": "client_uuid_123",
-  "body": "Xin chào"
+  "body": "Xin chào",
+  "attachment": {
+    "type": "image",
+    "url": "data:image/png;base64,...",
+    "mimeType": "image/png",
+    "name": "anh.png",
+    "size": 120000,
+    "alt": "Ảnh anh.png"
+  }
 }
 ```
 
 Validation:
 
-- `body.trim().length >= 1`.
+- Phải có `body.trim().length >= 1` hoặc `attachment`.
 - `body.length <= 2000`.
+- `attachment.type` hiện chỉ hỗ trợ `image`.
+- MIME ảnh cho phép: `image/jpeg`, `image/png`, `image/webp`, `image/gif`.
+- Ảnh tối đa 1.5 MB trong local/dev socket payload; production nên đổi `url` sang object storage.
 - Rate limit: 20 messages/minute/conversation, 120 messages/hour/session ở MVP.
 
 ### message:new
@@ -741,7 +756,7 @@ Server -> Client.
   "conversationId": "conv_123",
   "sender": {
     "participantId": "part_me",
-    "alias": "Mây 428",
+    "alias": "AD-4827",
     "avatarKey": "avatar_blue_03",
     "mode": "guest",
     "age": 22,
@@ -750,6 +765,14 @@ Server -> Client.
     "online": true
   },
   "body": "Xin chào",
+  "attachment": {
+    "type": "image",
+    "url": "data:image/png;base64,...",
+    "mimeType": "image/png",
+    "name": "anh.png",
+    "size": 120000,
+    "alt": "Ảnh anh.png"
+  },
   "status": "sent",
   "createdAt": "2026-06-30T16:00:00.000Z"
 }

@@ -12,9 +12,7 @@ export const createAnonymousSessionSchema = z.object({
 
 export const registerSchema = z.object({
   email: z.string().trim().email(),
-  password: z.string().min(8),
-  displayName: z.string().trim().min(2).max(30),
-  profile: chatProfileSchema.omit({ displayName: true }).optional()
+  password: z.string().min(8)
 });
 
 export const loginSchema = z.object({

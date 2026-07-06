@@ -81,7 +81,7 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
     try {
       const payload = sendMessageSchema.parse(body);
       client.join(conversationRoom(payload.conversationId));
-      const message = this.store.sendMessage(auth.sessionId, payload.conversationId, payload.body, payload.clientMessageId);
+      const message = this.store.sendMessage(auth.sessionId, payload.conversationId, payload.body, payload.clientMessageId, payload.attachment);
       this.server.to(conversationRoom(payload.conversationId)).emit("message:new", message);
 
       if (this.store.shouldEmitQuestionSuggestion(payload.conversationId)) {
